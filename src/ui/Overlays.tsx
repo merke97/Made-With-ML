@@ -69,11 +69,14 @@ export function HelpHint() {
           <b>Træk</b> for at panorere — vandret er tid, lodret er kanaler
         </li>
         <li>
-          <b>Scroll / rul</b> for at zoome ind og ud
+          <b>Scroll</b> eller <b>knib</b> (to fingre) for at zoome
+        </li>
+        <li>
+          <b>Dobbelt-klik / dobbelt-tap</b> zoomer ind
         </li>
         <li>Zoom ind: arkivet deler sig i fjernsyn, radio, kanaler og udsendelser</li>
         <li>
-          <b>Klik</b> en udsendelse for detaljer
+          <b>Tap</b> en udsendelse for detaljer
         </li>
       </ul>
     </div>
