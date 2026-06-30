@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - claude/dr-archive-temporal-explorer-rc493c
+      - claude/ux-polish-transitions-wfiptg
   workflow_dispatch:
 
 # Allow the workflow to publish to Pages.
