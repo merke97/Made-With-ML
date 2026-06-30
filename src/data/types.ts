@@ -38,6 +38,8 @@ export interface ProgrammeInstance {
   clusterId: string;
   /** Cheap lower-cased title for search; precomputed once. */
   search: string;
+  /** Deep link into DR-arkivet (live data only). */
+  link?: string;
 }
 
 export type AggregateLevel = "year" | "month" | "day";

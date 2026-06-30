@@ -1,4 +1,3 @@
-import { CHANNELS_BY_ID } from "../data/channels";
 import type { AccessState } from "../data/types";
 import type { Store } from "../timeline/store";
 import { formatDateTime } from "../timeline/ticks";
@@ -23,7 +22,7 @@ export function DetailPanel({ store }: { store: Store }) {
   const { selected } = useExplorerState(store);
   if (!selected) return null;
 
-  const channel = CHANNELS_BY_ID.get(selected.channelId);
+  const channel = store.channelsById.get(selected.channelId);
 
   return (
     <aside className="detail-panel" role="dialog" aria-label="Udsendelsesdetaljer">
@@ -54,18 +53,26 @@ export function DetailPanel({ store }: { store: Store }) {
       </dl>
 
       <div className="detail-actions">
-        <button
-          className="primary"
-          disabled={selected.access !== "available"}
-          title={selected.access === "available" ? "Åbn i DR-arkivet" : "Ikke tilgængelig online"}
-        >
-          Åbn i DR-arkivet
-        </button>
+        {selected.link ? (
+          <a
+            className="btn primary"
+            href={selected.link}
+            target="_blank"
+            rel="noreferrer"
+            aria-disabled={selected.access !== "available"}
+          >
+            Åbn i DR-arkivet
+          </a>
+        ) : (
+          <button className="primary" disabled title="Deeplink kun for rigtige arkivdata">
+            Åbn i DR-arkivet
+          </button>
+        )}
         <button onClick={() => store.setQuery(selected.title)}>Find genudsendelser</button>
       </div>
       <p className="detail-note">
-        Klyngen <code>{selected.clusterId}</code> samler sandsynlige genudsendelser af samme program. Prototype med
-        syntetiske data — “Åbn” er kun aktiv på tilgængelige optagelser.
+        Klyngen <code>{selected.clusterId}</code> samler sandsynlige genudsendelser af samme program.
+        {selected.link ? " Data fra DR-arkivet." : " Syntetiske data — “Åbn” aktiveres med rigtige arkivdata."}
       </p>
     </aside>
   );

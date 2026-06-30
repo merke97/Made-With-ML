@@ -1,13 +1,16 @@
-import { ARCHIVE_END_MS, ARCHIVE_START_MS } from "../data/channels";
 import { clamp } from "./zoom";
 
 // A virtual camera: time on x, tracks on y. The state is intentionally tiny.
 // All pan/zoom interaction mutates this; the renderer reads it every frame.
-
-const SPAN = ARCHIVE_END_MS - ARCHIVE_START_MS;
-const PAD = SPAN * 0.04; // a little breathing room past the archive edges
+// Time bounds are injected so the same camera serves synthetic data (a 5-year
+// slice) or the full live archive (1931–2025).
 
 export class Camera {
+  startMs: number;
+  endMs: number;
+  private span: number;
+  private pad: number;
+
   centerTimeMs: number;
   msPerPixel: number;
   scrollY = 0;
@@ -18,11 +21,15 @@ export class Camera {
 
   /** Tightest zoom-in: ~25 minutes per 1000px (a single news bar fills view). */
   minMsPerPixel = (25 * 60_000) / 1000;
-  /** Loosest zoom-out: whole archive plus padding fits the viewport. */
-  maxMsPerPixel = (SPAN + 2 * PAD) / 1000;
+  maxMsPerPixel: number;
 
-  constructor() {
-    this.centerTimeMs = ARCHIVE_START_MS + SPAN / 2;
+  constructor(bounds: { startMs: number; endMs: number }) {
+    this.startMs = bounds.startMs;
+    this.endMs = bounds.endMs;
+    this.span = this.endMs - this.startMs;
+    this.pad = this.span * 0.04;
+    this.centerTimeMs = this.startMs + this.span / 2;
+    this.maxMsPerPixel = (this.span + 2 * this.pad) / 1000;
     this.msPerPixel = this.maxMsPerPixel;
   }
 
@@ -30,7 +37,7 @@ export class Camera {
     this.viewportWidth = w;
     this.viewportHeight = h;
     // maxMsPerPixel is defined for 1000px; rescale to actual width.
-    this.maxMsPerPixel = (SPAN + 2 * PAD) / Math.max(300, w);
+    this.maxMsPerPixel = (this.span + 2 * this.pad) / Math.max(300, w);
     this.msPerPixel = clamp(this.msPerPixel, this.minMsPerPixel, this.maxMsPerPixel);
     this.clampCenter();
     this.clampScroll();
@@ -73,9 +80,9 @@ export class Camera {
 
   private clampCenter() {
     const half = (this.viewportWidth / 2) * this.msPerPixel;
-    const lo = ARCHIVE_START_MS - PAD + half;
-    const hi = ARCHIVE_END_MS + PAD - half;
-    this.centerTimeMs = lo <= hi ? clamp(this.centerTimeMs, lo, hi) : (ARCHIVE_START_MS + ARCHIVE_END_MS) / 2;
+    const lo = this.startMs - this.pad + half;
+    const hi = this.endMs + this.pad - half;
+    this.centerTimeMs = lo <= hi ? clamp(this.centerTimeMs, lo, hi) : (this.startMs + this.endMs) / 2;
   }
 
   private clampScroll() {

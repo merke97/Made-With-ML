@@ -6,6 +6,8 @@
   "description": "A temporal map of the DR archive — pan and zoom through broadcast history.",
   "scripts": {
     "dev": "vite",
+    "server": "node server/index.mjs",
+    "mock-kb": "node server/mock-kb.mjs",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit"

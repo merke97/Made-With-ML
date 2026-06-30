@@ -1,5 +1,6 @@
+import { CHANNELS_BY_ID } from "../data/channels";
 import type { ArchiveData } from "../data/generate";
-import type { ProgrammeInstance } from "../data/types";
+import type { Channel, ProgrammeInstance } from "../data/types";
 import { Camera } from "./camera";
 
 // Minimal observable store for UI state that both React (chrome) and the
@@ -14,7 +15,8 @@ export interface ExplorerState {
 }
 
 export class Store {
-  camera = new Camera();
+  camera: Camera;
+  channelsById: Map<string, Channel>;
   state: ExplorerState = {
     query: "",
     showNews: false,
@@ -22,16 +24,18 @@ export class Store {
     selected: null,
   };
 
-  /** Ids matching the current query (for bar highlight). */
   matchedIds: Set<string> = new Set();
-  /** Matching programmes sorted by start (for aggregate-zoom hit markers). */
   matchedSorted: ProgrammeInstance[] = [];
 
   private listeners = new Set<() => void>();
   private data: ArchiveData;
 
-  constructor(data: ArchiveData) {
+  constructor(data: ArchiveData, channels: Channel[], bounds: { startMs: number; endMs: number }) {
     this.data = data;
+    this.camera = new Camera(bounds);
+    this.channelsById = channels.length
+      ? new Map(channels.map((c) => [c.id, c]))
+      : (CHANNELS_BY_ID as Map<string, Channel>);
   }
 
   subscribe(fn: () => void): () => void {

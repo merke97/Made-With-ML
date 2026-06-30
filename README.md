@@ -97,14 +97,60 @@ per track. Programme count is misleading (a day of short clips would outshine a
 day of long broadcasts); broadcast hours answer the real question — *how much
 archive material exists here?*
 
+## Real data — DR-arkivet (live mode)
+
+The app can run on the **actual** DR archive (the Royal Danish Library's Solr
+index behind kb.dk), not just synthetic data. Use the **Syntetisk / DR-arkivet**
+switch in the toolbar; pick a date window and hit **Hent**.
+
+Because the browser can't call kb.dk directly (no CORS + a `SameSite=Strict`
+auth cookie), a small **server-side proxy** is required. It's included:
+
+```
+server/
+  kb.mjs        # holds the anonymous auth cookie, forwards Solr calls (re-auths on 401)
+  solr.mjs      # pure query builders + response→domain mappers (offline-testable)
+  handlers.mjs  # /api surface (§11): channels, total, histogram, window, search — cached
+  index.mjs     # standalone server  (npm run server)  — adds CORS for separate hosting
+  mock-kb.mjs   # a local fake kb.dk for offline verification (npm run mock-kb)
+```
+
+In `npm run dev` the proxy is mounted as Vite middleware at `/api/*`, so the
+front-end gets real data with **no extra process and no CORS**:
+
+```bash
+npm run dev            # app + proxy at http://localhost:5173, talking to kb.dk
+```
+
+Live mode loads a **bounded window** (the chosen date range) into the same
+in-memory shape the synthetic path uses — real channels (`creator_affiliation`),
+programme spans (`startTime`/`duration_ms`), genres, availability from
+`has_kaltura_id`, and a deep link into DR-arkivet on each detail panel. The data
+contract is documented in [`docs/SOLRAPISPEC.md`](docs/SOLRAPISPEC.md); the
+mapping lives in `server/solr.mjs`.
+
+**Hosting note:** GitHub Pages is static, so the public demo stays synthetic.
+To make a deployed site live, host the proxy (`npm run server`, or any Node host)
+and point the front-end at it with `VITE_API_BASE=https://your-proxy` at build time.
+
+**Verify offline** (no kb.dk access needed):
+
+```bash
+npm run mock-kb &                       # fake kb.dk on :8787
+KB_BASE=http://localhost:8787 npm run dev   # proxy talks to the mock
+```
+
+The "stream a tile per viewport" model from the brief is the natural next step
+on top of this bounded loader — `data/live.ts` already speaks the histogram +
+window endpoints a tile server would expose.
+
 ## Relationship to the real archive
 
-The prototype generates data client-side. The production shape, per the brief, is
-a **temporal tile server**: the frontend requests only the current viewport
-(`{ start, end, msPerPixel, visibleTracks, overlays }`) and the backend returns
-aggregate density when zoomed out or individual programme spans when zoomed in —
-the same "send tiles, not the whole world" model as a map engine. The aggregate
-levels in `data/aggregate.ts` mirror what would be precomputed server-side.
+The aggregate levels in `data/aggregate.ts` mirror what a production
+**temporal tile server** would precompute: the frontend requests only the
+current viewport and the backend returns aggregate density when zoomed out or
+individual programme spans when zoomed in — "send tiles, not the whole world",
+like a map engine.
 
 ## Deliberately out of scope (next steps)
 

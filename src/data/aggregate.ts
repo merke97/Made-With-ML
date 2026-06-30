@@ -1,6 +1,5 @@
-import { CHANNELS, RADIO_CHANNELS, TV_CHANNELS } from "./channels";
 import type { ArchiveData } from "./generate";
-import type { AggregateBucket, AggregateLevel, ProgrammeInstance, TrackAggregate } from "./types";
+import type { AggregateBucket, AggregateLevel, Channel, ProgrammeInstance, TrackAggregate } from "./types";
 
 // Track ids used by the layout/renderer for aggregate rollups.
 export const TRACK_ARCHIVE = "ARCHIVE";
@@ -74,15 +73,21 @@ function lodFor(programmes: ProgrammeInstance[], trackId: string): TrackLOD {
 }
 
 /** Precompute LOD aggregates for every channel and every rollup track. */
-export function buildAggregates(data: ArchiveData): AggregateIndex {
+export function buildAggregates(data: ArchiveData, channels: Channel[]): AggregateIndex {
   const index: AggregateIndex = new Map();
 
-  for (const c of CHANNELS) {
+  for (const c of channels) {
     index.set(c.id, lodFor(data.byChannel.get(c.id) ?? [], c.id));
   }
 
-  const tvProgs = TV_CHANNELS.flatMap((c) => data.byChannel.get(c.id) ?? []).sort((a, b) => a.startMs - b.startMs);
-  const radioProgs = RADIO_CHANNELS.flatMap((c) => data.byChannel.get(c.id) ?? []).sort((a, b) => a.startMs - b.startMs);
+  const tvProgs = channels
+    .filter((c) => c.mediaType === "tv")
+    .flatMap((c) => data.byChannel.get(c.id) ?? [])
+    .sort((a, b) => a.startMs - b.startMs);
+  const radioProgs = channels
+    .filter((c) => c.mediaType === "radio")
+    .flatMap((c) => data.byChannel.get(c.id) ?? [])
+    .sort((a, b) => a.startMs - b.startMs);
 
   index.set(TRACK_TV, lodFor(tvProgs, TRACK_TV));
   index.set(TRACK_RADIO, lodFor(radioProgs, TRACK_RADIO));

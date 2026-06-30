@@ -1,4 +1,3 @@
-import { RADIO_CHANNELS, TV_CHANNELS } from "../data/channels";
 import type { Channel, MediaType } from "../data/types";
 import { TRACK_ARCHIVE, TRACK_RADIO, TRACK_TV } from "../data/aggregate";
 import type { Camera } from "./camera";
@@ -8,6 +7,10 @@ import { lerp, type ZoomState } from "./zoom";
 // channel lanes have permanent vertical positions and never reorder while you
 // scroll through time. Aggregate bands (Archive, TV, Radio) are drawn in the
 // same space and smoothly split into those fixed lanes as you zoom in.
+//
+// Channels are injected (synthetic set or the live archive's real channels), so
+// the geometry is built into a TrackModel once per channel-set rather than at
+// module load.
 
 export const RULER_H = 36;
 export const GUTTER_W = 138;
@@ -26,6 +29,41 @@ const blendRect = (a: VRect, b: VRect, t: number): VRect => ({
   y: lerp(a.y, b.y, t),
   h: lerp(a.h, b.h, t),
 });
+
+export interface TrackModel {
+  tv: Channel[];
+  radio: Channel[];
+  /** Fixed world-space rect (top + height) of each channel lane. */
+  worldRects: Map<string, VRect>;
+  contentHeight: number;
+  tvHeaderY: number;
+  radioHeaderY: number;
+}
+
+/** Build the permanent lane geometry for a channel set. Stable by construction. */
+export function buildTrackModel(channels: Channel[]): TrackModel {
+  const sorted = [...channels].sort((a, b) => a.sortOrder - b.sortOrder);
+  const tv = sorted.filter((c) => c.mediaType === "tv");
+  const radio = sorted.filter((c) => c.mediaType === "radio");
+  const worldRects = new Map<string, VRect>();
+
+  let y = RULER_H + 6;
+  const tvHeaderY = y;
+  y += GROUP_HEADER_H;
+  for (const c of tv) {
+    worldRects.set(c.id, { y, h: CHANNEL_H });
+    y += CHANNEL_H;
+  }
+  y += GROUP_GAP;
+  const radioHeaderY = y;
+  y += GROUP_HEADER_H;
+  for (const c of radio) {
+    worldRects.set(c.id, { y, h: CHANNEL_H });
+    y += CHANNEL_H;
+  }
+
+  return { tv, radio, worldRects, contentHeight: y + 18, tvHeaderY, radioHeaderY };
+}
 
 export interface RenderTrack {
   kind: "archive" | "media" | "channel";
@@ -51,41 +89,15 @@ export interface Layout {
   contentHeight: number;
 }
 
-/** Fixed world-space y of each channel lane (top), measured from content top. */
-function channelWorldRects(): { byId: Map<string, VRect>; contentHeight: number; tvHeaderY: number; radioHeaderY: number } {
-  const byId = new Map<string, VRect>();
-  let y = RULER_H + 6;
-
-  const tvHeaderY = y;
-  y += GROUP_HEADER_H;
-  for (const c of TV_CHANNELS) {
-    byId.set(c.id, { y, h: CHANNEL_H });
-    y += CHANNEL_H;
-  }
-
-  y += GROUP_GAP;
-  const radioHeaderY = y;
-  y += GROUP_HEADER_H;
-  for (const c of RADIO_CHANNELS) {
-    byId.set(c.id, { y, h: CHANNEL_H });
-    y += CHANNEL_H;
-  }
-
-  return { byId, contentHeight: y + 18, tvHeaderY, radioHeaderY };
-}
-
-const CHANNEL_WORLD = channelWorldRects();
-
-export function computeLayout(camera: Camera, z: ZoomState): Layout {
+export function computeLayout(camera: Camera, z: ZoomState, model: TrackModel): Layout {
   const aggTop = RULER_H + AGG_TOP_PAD;
   const aggBottom = camera.viewportHeight - AGG_BOTTOM_PAD;
   const aggH = Math.max(40, aggBottom - aggTop);
 
-  // Aggregate-regime rects (viewport space, unscrolled).
   const archiveRect: VRect = { y: aggTop, h: aggH };
 
-  const nTv = TV_CHANNELS.length;
-  const nRadio = RADIO_CHANNELS.length;
+  const nTv = Math.max(1, model.tv.length);
+  const nRadio = Math.max(1, model.radio.length);
   const usable = aggH - BAND_GAP;
   const tvH = usable * (nTv / (nTv + nRadio));
   const radioH = usable * (nRadio / (nTv + nRadio));
@@ -93,13 +105,12 @@ export function computeLayout(camera: Camera, z: ZoomState): Layout {
   const radioBand: VRect = { y: aggTop + tvH + BAND_GAP, h: radioH };
 
   // Content height grows as channels resolve, enabling vertical scroll.
-  const contentHeight = lerp(camera.viewportHeight, CHANNEL_WORLD.contentHeight, z.pChannel);
+  const contentHeight = lerp(camera.viewportHeight, model.contentHeight, z.pChannel);
   camera.contentHeight = contentHeight;
   const scroll = camera.scrollY;
 
   const tracks: RenderTrack[] = [];
 
-  // Archive band: present until TV/Radio take over.
   tracks.push({
     kind: "archive",
     trackId: TRACK_ARCHIVE,
@@ -110,7 +121,6 @@ export function computeLayout(camera: Camera, z: ZoomState): Layout {
     labelAlpha: 1 - z.pMedia,
   });
 
-  // Media bands: emerge from the archive band, then hand off to channels.
   const mediaDefs: { id: string; type: MediaType; label: string; band: VRect }[] = [
     { id: TRACK_TV, type: "tv", label: "Fjernsyn", band: tvBand },
     { id: TRACK_RADIO, type: "radio", label: "Radio", band: radioBand },
@@ -129,10 +139,10 @@ export function computeLayout(camera: Camera, z: ZoomState): Layout {
     });
   }
 
-  // Channel lanes: emerge from their media band into permanent, fixed rows.
   const channelsOf = (chs: Channel[], band: VRect) => {
     for (const c of chs) {
-      const world = CHANNEL_WORLD.byId.get(c.id)!;
+      const world = model.worldRects.get(c.id);
+      if (!world) continue;
       const target: VRect = { y: world.y - scroll, h: world.h };
       const r = blendRect(band, target, z.pChannel);
       tracks.push({
@@ -148,12 +158,12 @@ export function computeLayout(camera: Camera, z: ZoomState): Layout {
       });
     }
   };
-  channelsOf(TV_CHANNELS, tvBand);
-  channelsOf(RADIO_CHANNELS, radioBand);
+  channelsOf(model.tv, tvBand);
+  channelsOf(model.radio, radioBand);
 
   const groupHeaders: GroupHeader[] = [
-    { label: "FJERNSYN", y: CHANNEL_WORLD.tvHeaderY - scroll, alpha: z.pChannel },
-    { label: "RADIO", y: CHANNEL_WORLD.radioHeaderY - scroll, alpha: z.pChannel },
+    { label: "FJERNSYN", y: model.tvHeaderY - scroll, alpha: z.pChannel },
+    { label: "RADIO", y: model.radioHeaderY - scroll, alpha: z.pChannel },
   ];
 
   return { tracks, groupHeaders, contentHeight };

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { AggregateIndex } from "../data/aggregate";
 import type { ArchiveData } from "../data/generate";
+import type { Channel } from "../data/types";
 import { TimelineRenderer } from "../timeline/renderer";
 import type { Store } from "../timeline/store";
 
@@ -8,13 +9,14 @@ interface Props {
   store: Store;
   data: ArchiveData;
   agg: AggregateIndex;
+  channels: Channel[];
   onReady: (renderer: TimelineRenderer) => void;
 }
 
 // Mounts the PixiJS canvas and translates pointer/wheel input into camera
 // moves. The model is map-like: drag pans both axes, wheel zooms under the
 // cursor (keeping the time under the cursor pinned).
-export function TimelineView({ store, data, agg, onReady }: Props) {
+export function TimelineView({ store, data, agg, channels, onReady }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<TimelineRenderer | null>(null);
@@ -22,7 +24,7 @@ export function TimelineView({ store, data, agg, onReady }: Props) {
   useEffect(() => {
     const wrap = wrapRef.current!;
     const canvas = canvasRef.current!;
-    const renderer = new TimelineRenderer(data, agg, store);
+    const renderer = new TimelineRenderer(data, agg, store, channels);
     let disposed = false;
 
     const rect = wrap.getBoundingClientRect();

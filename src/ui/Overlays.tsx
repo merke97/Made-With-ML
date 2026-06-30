@@ -13,7 +13,7 @@ function phaseLabel(zoomState: ReturnType<typeof computeZoomState>): string {
   return "Hele arkivet";
 }
 
-export function StatusReadout({ store }: { store: Store }) {
+export function StatusReadout({ store, live }: { store: Store; live: boolean }) {
   const [text, setText] = useState({ phase: "Hele arkivet", date: "" });
   const last = useRef(0);
 
@@ -33,6 +33,7 @@ export function StatusReadout({ store }: { store: Store }) {
 
   return (
     <div className="status">
+      <span className={`status-source ${live ? "live" : ""}`}>{live ? "● DR-arkivet (live)" : "Syntetisk data"}</span>
       <span className="status-phase">{text.phase}</span>
       <span className="status-date">{text.date}</span>
     </div>

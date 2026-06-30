@@ -1,8 +1,8 @@
 import { Application, Container, Graphics } from "pixi.js";
 import type { AggregateIndex, TrackLOD } from "../data/aggregate";
 import type { ArchiveData } from "../data/generate";
-import type { AggregateLevel, ProgrammeInstance } from "../data/types";
-import { computeLayout, GUTTER_W, RULER_H, type RenderTrack } from "./layout";
+import type { AggregateLevel, Channel, ProgrammeInstance } from "../data/types";
+import { buildTrackModel, computeLayout, GUTTER_W, RULER_H, type RenderTrack, type TrackModel } from "./layout";
 import type { Store } from "./store";
 import { TextPool } from "./textpool";
 import { computeTicks } from "./ticks";
@@ -56,12 +56,16 @@ export class TimelineRenderer {
   private hoveredProgramme: ProgrammeInstance | null = null;
   /** Cache of last frame's channel lane rects for hit-testing. */
   private channelRects: RenderTrack[] = [];
+  private model: TrackModel;
 
   constructor(
     private data: ArchiveData,
     private agg: AggregateIndex,
     private store: Store,
-  ) {}
+    channels: Channel[],
+  ) {
+    this.model = buildTrackModel(channels);
+  }
 
   async init(canvas: HTMLCanvasElement, width: number, height: number) {
     await this.app.init({
@@ -98,7 +102,7 @@ export class TimelineRenderer {
   private draw() {
     const cam = this.store.camera;
     const z = computeZoomState(cam.msPerPixel);
-    const layout = computeLayout(cam, z);
+    const layout = computeLayout(cam, z, this.model);
     this.channelRects = layout.tracks.filter((t) => t.kind === "channel");
 
     const ribbon = this.ribbonG.clear();
