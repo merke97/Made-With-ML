@@ -1,13 +1,17 @@
 :root {
-  --bg: #0e1117;
-  --panel: #151b24;
-  --panel-2: #1b2230;
-  --hair: #283143;
-  --text: #d7dee9;
-  --text-dim: #8b95a7;
-  --tv: #49b3c6;
-  --radio: #e0964a;
-  --accent: #74e0ff;
+  /* "Parchment & ink" — a light, warm Royal-Library palette. */
+  --bg: #f4eee2;
+  --panel: #fbf7ee;
+  --panel-2: #ece3d1;
+  --hair: #d9cdb6;
+  --text: #2c2620;
+  --text-dim: #7c715c;
+  --tv: #3f6e8c;
+  --radio: #b0743a;
+  --gold: #a8842f;
+  --accent: #1f8a86;
+  --dr-red: #c8102e;
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
@@ -42,7 +46,7 @@ body {
   gap: 10px;
 }
 .splash-mark {
-  background: #e3000f;
+  background: var(--dr-red);
   color: #fff;
   font-weight: 800;
   border-radius: 8px;
@@ -50,8 +54,10 @@ body {
   font-size: 22px;
 }
 .splash-title {
-  font-size: 20px;
+  font-family: var(--serif);
+  font-size: 24px;
   font-weight: 600;
+  letter-spacing: 0.2px;
 }
 .splash-sub {
   color: var(--text-dim);
@@ -90,6 +96,7 @@ body {
   padding: 10px 16px;
   background: var(--panel);
   border-bottom: 1px solid var(--hair);
+  box-shadow: 0 1px 0 rgba(44, 38, 32, 0.03);
   z-index: 5;
   flex-wrap: wrap;
 }
@@ -99,7 +106,7 @@ body {
   gap: 9px;
 }
 .brand-mark {
-  background: #e3000f;
+  background: var(--dr-red);
   color: #fff;
   font-weight: 800;
   border-radius: 5px;
@@ -108,8 +115,9 @@ body {
   letter-spacing: 0.5px;
 }
 .brand-title {
+  font-family: var(--serif);
   font-weight: 600;
-  font-size: 15px;
+  font-size: 17px;
   white-space: nowrap;
 }
 
@@ -160,10 +168,11 @@ body {
 }
 .layers label.on {
   color: var(--text);
-  border-color: var(--accent);
+  border-color: var(--gold);
+  background: #f3ead4;
 }
 .layers input {
-  accent-color: var(--accent);
+  accent-color: var(--gold);
 }
 
 .datejump {
@@ -216,20 +225,21 @@ body {
 /* ── status readout ──────────────────────────────────────────────────── */
 .status {
   position: absolute;
-  top: 12px;
+  top: 46px;
   right: 16px;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: 2px;
   pointer-events: none;
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.7);
 }
 .status-phase {
-  font-size: 13px;
+  font-family: var(--serif);
+  font-size: 15px;
   font-weight: 600;
-  color: var(--accent);
-  letter-spacing: 0.3px;
+  color: var(--text);
+  letter-spacing: 0.2px;
 }
 .status-date {
   font-size: 12px;
@@ -246,11 +256,12 @@ body {
   gap: 6px;
   font-size: 12px;
   color: var(--text-dim);
-  background: rgba(16, 20, 28, 0.72);
+  background: rgba(251, 247, 238, 0.84);
   border: 1px solid var(--hair);
   border-radius: 8px;
   padding: 8px 10px;
   pointer-events: none;
+  backdrop-filter: blur(3px);
 }
 .legend-row {
   display: flex;
@@ -294,11 +305,30 @@ body {
   bottom: 14px;
   right: 16px;
   width: 280px;
-  background: rgba(21, 27, 36, 0.92);
+  background: rgba(251, 247, 238, 0.94);
   border: 1px solid var(--hair);
   border-radius: 10px;
   padding: 12px 14px;
   font-size: 13px;
+  box-shadow: 0 6px 20px rgba(44, 38, 32, 0.1);
+  backdrop-filter: blur(3px);
+}
+.help-toggle {
+  position: absolute;
+  bottom: 14px;
+  right: 16px;
+  background: rgba(251, 247, 238, 0.9);
+  border: 1px solid var(--hair);
+  color: var(--text-dim);
+  border-radius: 999px;
+  padding: 7px 13px;
+  font-size: 12px;
+  cursor: pointer;
+  backdrop-filter: blur(3px);
+}
+.help-toggle:hover {
+  color: var(--text);
+  border-color: var(--gold);
 }
 .help strong {
   display: block;
@@ -338,7 +368,7 @@ body {
   border-left: 1px solid var(--hair);
   padding: 22px 22px 18px;
   overflow-y: auto;
-  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.35);
+  box-shadow: -14px 0 36px rgba(44, 38, 32, 0.14);
   animation: slidein 0.18s ease;
 }
 @keyframes slidein {
@@ -348,8 +378,9 @@ body {
   }
 }
 .detail-panel h2 {
+  font-family: var(--serif);
   margin: 10px 0 16px;
-  font-size: 20px;
+  font-size: 22px;
   line-height: 1.25;
 }
 .access-pill {
@@ -360,19 +391,19 @@ body {
   border-radius: 999px;
 }
 .access-available {
-  background: rgba(73, 196, 134, 0.18);
-  color: #5fd498;
+  background: rgba(47, 125, 79, 0.14);
+  color: #2f7d4f;
 }
 .access-metadata_only {
-  background: rgba(116, 224, 255, 0.16);
-  color: var(--accent);
+  background: rgba(31, 138, 134, 0.14);
+  color: #1c6f6c;
 }
 .access-restricted {
-  background: rgba(224, 150, 74, 0.18);
-  color: var(--radio);
+  background: rgba(176, 116, 58, 0.16);
+  color: #9a5f24;
 }
 .access-unknown {
-  background: rgba(139, 149, 167, 0.18);
+  background: rgba(124, 113, 92, 0.16);
   color: var(--text-dim);
 }
 .detail-panel dl {
@@ -401,8 +432,8 @@ body {
   margin-bottom: 16px;
 }
 .detail-actions button.primary {
-  background: #e3000f;
-  border-color: #e3000f;
+  background: var(--dr-red);
+  border-color: var(--dr-red);
   color: #fff;
   font-weight: 600;
 }

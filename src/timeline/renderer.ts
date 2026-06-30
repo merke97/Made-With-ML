@@ -8,19 +8,22 @@ import { TextPool } from "./textpool";
 import { computeTicks } from "./ticks";
 import { clamp, computeZoomState, MS } from "./zoom";
 
-// ── palette ──────────────────────────────────────────────────────────────
-const BG = 0x0e1117;
-const GUTTER_BG = 0x141a23;
-const RULER_BG = 0x121821;
-const HAIR = 0x222b38;
-const TEXT_DIM = 0x8b95a7;
-const TEXT_BRIGHT = 0xd7dee9;
-const COL_ARCHIVE = 0x6c7a91;
-const COL_TV = 0x49b3c6;
-const COL_RADIO = 0xe0964a;
-const COL_NEWS = 0xffd166;
-const COL_SEARCH = 0x74e0ff;
-const COL_SELECT = 0xffffff;
+// ── palette ────────────────────────────────────────────────────────────────
+// "Parchment & ink": a light, warm Royal-Library palette. Density now reads as
+// ink laid down on paper (more broadcast time = more saturated), the inverse of
+// the old dark heatmap. Text is dark ink; one brass gold + DR red carry accents.
+const BG = 0xf4eee2; // warm parchment
+const GUTTER_BG = 0xefe7d6; // a touch deeper paper
+const RULER_BG = 0xf1ead9;
+const HAIR = 0xd9cdb6; // muted taupe rule
+const TEXT_DIM = 0x7c715c; // soft brown-grey
+const TEXT_BRIGHT = 0x2c2620; // warm near-black ink
+const COL_ARCHIVE = 0x8a7d66; // whole-archive terrain (muted taupe ink)
+const COL_TV = 0x3f6e8c; // muted petrol blue
+const COL_RADIO = 0xb0743a; // muted terracotta
+const COL_NEWS = 0xb08832; // brass gold
+const COL_SEARCH = 0x1f8a86; // deep teal
+const COL_SELECT = 0x211c15; // ink ring (high contrast on paper)
 
 const mediaColor = (t?: string) => (t === "tv" ? COL_TV : t === "radio" ? COL_RADIO : COL_ARCHIVE);
 
@@ -82,7 +85,7 @@ export class TimelineRenderer {
     this.gutterPool = new TextPool(this.root, { fill: 0xffffff, fontSize: 13, fontFamily: "system-ui, sans-serif" });
     this.rulerPool = new TextPool(this.root, { fill: 0xffffff, fontSize: 11, fontFamily: "system-ui, sans-serif" });
 
-    this.app.ticker.add(() => this.draw());
+    this.app.ticker.add((ticker) => this.draw(ticker.deltaMS));
   }
 
   resize(width: number, height: number) {
@@ -95,8 +98,9 @@ export class TimelineRenderer {
   }
 
   // ── per-frame draw ───────────────────────────────────────────────────────
-  private draw() {
+  private draw(dtMs: number) {
     const cam = this.store.camera;
+    cam.update(dtMs);
     const z = computeZoomState(cam.msPerPixel);
     const layout = computeLayout(cam, z);
     this.channelRects = layout.tracks.filter((t) => t.kind === "channel");
@@ -124,8 +128,8 @@ export class TimelineRenderer {
         }
         this.drawLaunchHatch(overlay, track);
       } else {
-        // Archive / TV / Radio aggregate density bands.
-        this.drawRibbon(ribbon, track, level, viewStart, viewEnd, track.alpha);
+        // Archive / TV / Radio aggregate density bands — a smooth terrain ridge.
+        this.drawRidge(ribbon, track, level, viewStart, viewEnd, track.alpha);
         if (this.store.state.showNews) this.drawNewsTerrain(overlay, track, level, viewStart, viewEnd, track.alpha);
       }
     }
@@ -169,6 +173,48 @@ export class TimelineRenderer {
       const t = Math.pow(clamp(b.broadcastMs / max, 0, 1), 0.6);
       g.rect(x, top, w + 0.5, h).fill({ color: base, alpha: alpha * (0.12 + 0.82 * t) });
     }
+  }
+
+  /**
+   * Tall aggregate bands (Archive / TV / Radio) drawn as a smooth terrain ridge:
+   * height encodes broadcast hours, filled soft with a brighter crest line. Far
+   * calmer than a wall of per-bucket rectangles, and the metaphor reads instantly
+   * — more material = taller, denser ground.
+   */
+  private drawRidge(
+    g: Graphics,
+    track: RenderTrack,
+    level: AggregateLevel,
+    viewStart: number,
+    viewEnd: number,
+    alpha: number,
+  ) {
+    const cam = this.store.camera;
+    const lod = this.agg.get(track.trackId);
+    if (!lod) return;
+    const buckets = lod[level].buckets;
+    const max = (lod.max as Record<AggregateLevel, number>)[level] || 1;
+    const base = mediaColor(track.mediaType);
+
+    const baseY = track.y + track.h - 3;
+    const usableH = Math.max(8, track.h - 9);
+
+    const top: number[] = [];
+    let i = Math.max(0, lowerBound(buckets, (b) => b.endMs, viewStart) - 1);
+    for (; i < buckets.length; i++) {
+      const b = buckets[i];
+      if (b.startMs > viewEnd) break;
+      const xMid = Math.max(GUTTER_W, cam.timeToX((b.startMs + b.endMs) / 2));
+      const t = Math.pow(clamp(b.broadcastMs / max, 0, 1), 0.6);
+      top.push(xMid, baseY - t * usableH);
+    }
+    if (top.length < 4) return;
+
+    const firstX = top[0];
+    const lastX = top[top.length - 2];
+    // Filled body down to the baseline, then a crisp crest line on top.
+    g.poly([firstX, baseY, ...top, lastX, baseY]).fill({ color: base, alpha: alpha * 0.5 });
+    g.poly(top, false).stroke({ width: 1.5, color: base, alpha: alpha * 0.85 });
   }
 
   private drawProgrammes(
@@ -233,9 +279,14 @@ export class TimelineRenderer {
         overlay.roundRect(drawX - 2, y - 2, w - gap + 4, barH + 4, r + 1).stroke({ width: 2, color: COL_SELECT, alpha: 1 });
       }
 
-      // Labels only when the bar is wide enough and there's room.
+      // Labels only when the bar is wide enough — and clipped to the bar so
+      // titles never bleed across neighbours (a big source of visual noise).
       if (pLabels > 0.02 && w > 46) {
-        this.titlePool.next(p.title, drawX + 6, cy - 7, pLabels * Math.min(1, a + 0.4), TEXT_BRIGHT);
+        const budget = Math.floor((w - 14) / 6.4);
+        if (budget >= 3) {
+          const label = p.title.length > budget ? p.title.slice(0, budget - 1) + "…" : p.title;
+          this.titlePool.next(label, drawX + 6, cy - 7, pLabels * Math.min(1, a + 0.4), TEXT_BRIGHT);
+        }
       }
     }
   }
@@ -250,7 +301,7 @@ export class TimelineRenderer {
     const x0 = GUTTER_W;
     const x1 = Math.min(launchX, cam.viewportWidth);
     if (x1 <= x0) return;
-    overlay.rect(x0, track.y + 2, x1 - x0, Math.max(2, track.h - 4)).fill({ color: 0x2a3340, alpha: 0.28 * track.alpha });
+    overlay.rect(x0, track.y + 2, x1 - x0, Math.max(2, track.h - 4)).fill({ color: 0xb8ac92, alpha: 0.3 * track.alpha });
   }
 
   private drawNewsTerrain(
@@ -316,7 +367,7 @@ export class TimelineRenderer {
     for (const t of ticks) {
       const x = cam.timeToX(t.ms);
       if (x < GUTTER_W || x > cam.viewportWidth) continue;
-      g.rect(x, RULER_H, 1, cam.viewportHeight - RULER_H).fill({ color: HAIR, alpha: t.major ? 0.5 : 0.28 });
+      g.rect(x, RULER_H, 1, cam.viewportHeight - RULER_H).fill({ color: HAIR, alpha: t.major ? 0.45 : 0.18 });
     }
 
     // Left gutter panel (opaque — masks content scrolled/overflowing left).
@@ -334,7 +385,7 @@ export class TimelineRenderer {
       if (track.labelAlpha < 0.02) continue;
       const cy = track.y + track.h / 2 - 8;
       if (cy < RULER_H - 12 || cy > cam.viewportHeight) continue;
-      const tint = track.kind === "channel" ? TEXT_BRIGHT : 0xffffff;
+      const tint = TEXT_BRIGHT;
       const swatch = mediaColor(track.mediaType);
       if (track.kind !== "archive") {
         g.rect(14, cy + 4, 8, 8).fill({ color: swatch, alpha: track.labelAlpha });
@@ -361,7 +412,7 @@ export class TimelineRenderer {
       const thumbH = Math.max(28, (trackH * trackH) / cam.contentHeight);
       const maxScroll = cam.contentHeight - cam.viewportHeight;
       const ty = RULER_H + (trackH - thumbH) * (cam.scrollY / maxScroll);
-      g.roundRect(cam.viewportWidth - 7, ty, 4, thumbH, 2).fill({ color: 0x4a5568, alpha: 0.6 * z.pChannel });
+      g.roundRect(cam.viewportWidth - 7, ty, 4, thumbH, 2).fill({ color: 0x9a8d74, alpha: 0.6 * z.pChannel });
     }
 
     this.rulerPool.end();
@@ -397,10 +448,6 @@ export class TimelineRenderer {
 
   /** Animate the camera to frame a given time at a given scale (date jump). */
   flyTo(timeMs: number, msPerPixel: number) {
-    const cam = this.store.camera;
-    cam.msPerPixel = clamp(msPerPixel, cam.minMsPerPixel, cam.maxMsPerPixel);
-    cam.centerTimeMs = timeMs;
-    cam.setViewport(cam.viewportWidth, cam.viewportHeight);
+    this.store.camera.flyTo(timeMs, msPerPixel);
   }
-
 }

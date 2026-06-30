@@ -61,6 +61,7 @@ export function TimelineView({ store, data, agg, onReady }: Props) {
     let moved = 0;
     let pinchDist = 0; // previous two-finger distance
     let lastTapTime = 0;
+    let lastMoveTs = 0; // for velocity (fling)
 
     const rectOf = () => canvas.getBoundingClientRect();
     const local = (clientX: number, clientY: number) => {
@@ -71,6 +72,8 @@ export function TimelineView({ store, data, agg, onReady }: Props) {
     const onDown = (e: PointerEvent) => {
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       moved = 0;
+      lastMoveTs = e.timeStamp;
+      store.camera.beginGesture();
       if (pointers.size === 2) pinchDist = currentPinchDist();
       canvas.setPointerCapture(e.pointerId);
     };
@@ -89,6 +92,9 @@ export function TimelineView({ store, data, agg, onReady }: Props) {
       if (!r) return;
       const prev = pointers.get(e.pointerId);
 
+      const dt = Math.max(1, e.timeStamp - lastMoveTs);
+      lastMoveTs = e.timeStamp;
+
       if (pointers.size >= 2 && prev) {
         // Pinch: zoom about the midpoint, and pan with the midpoint drift.
         const beforeMid = pinchMid();
@@ -98,8 +104,8 @@ export function TimelineView({ store, data, agg, onReady }: Props) {
         if (pinchDist > 0 && dist > 0) {
           const anchorX = local(afterMid.x, afterMid.y).x;
           store.camera.zoomAt(anchorX, pinchDist / dist);
-          store.camera.panByPixels(afterMid.x - beforeMid.x);
-          store.camera.scrollByPixels(-(afterMid.y - beforeMid.y));
+          store.camera.panByPixels(afterMid.x - beforeMid.x, dt);
+          store.camera.scrollByPixels(-(afterMid.y - beforeMid.y), dt);
         }
         pinchDist = dist;
         moved += 99;
@@ -112,8 +118,8 @@ export function TimelineView({ store, data, agg, onReady }: Props) {
         const dy = e.clientY - prev.y;
         moved += Math.abs(dx) + Math.abs(dy);
         pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-        store.camera.panByPixels(dx);
-        store.camera.scrollByPixels(-dy);
+        store.camera.panByPixels(dx, dt);
+        store.camera.scrollByPixels(-dy, dt);
         canvas.style.cursor = "grabbing";
       } else {
         const { x, y } = local(e.clientX, e.clientY);
@@ -133,6 +139,7 @@ export function TimelineView({ store, data, agg, onReady }: Props) {
       const wasSingle = pointers.size === 1;
       pointers.delete(e.pointerId);
       if (pointers.size < 2) pinchDist = 0;
+      if (pointers.size === 0) store.camera.endGesture();
 
       if (wasSingle && moved < 6 && r) {
         const { x, y } = local(e.clientX, e.clientY);

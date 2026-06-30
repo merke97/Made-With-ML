@@ -56,8 +56,14 @@ export function Legend() {
 }
 
 export function HelpHint() {
-  const [open, setOpen] = useState(true);
-  if (!open) return null;
+  const [open, setOpen] = useState(false);
+  if (!open) {
+    return (
+      <button className="help-toggle" aria-label="Vis hjælp" onClick={() => setOpen(true)}>
+        Sådan bruger du kortet
+      </button>
+    );
+  }
   return (
     <div className="help">
       <button className="help-close" aria-label="Skjul" onClick={() => setOpen(false)}>

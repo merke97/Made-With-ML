@@ -90,6 +90,18 @@ parent band's centre to their own fixed lane). Because the time under the cursor
 stays pinned and the lanes line up spatially, it reads as one object resolving —
 not a sequence of separate charts.
 
+### Motion & "lock-in" (`timeline/camera.ts`)
+
+Zoom is continuous *while you drive it*, but the camera should never come to rest
+half-resolved. Every interaction sets a **target**; `Camera.update(dt)` eases the
+live value toward it each frame (so zoom glides and pan has momentum), and the
+cursor-anchored time stays pinned for the whole glide. When input goes idle and
+the zoom is caught mid-transition, a **magnetic detent** completes the move — in
+the direction you were heading — onto the nearest resolved plateau (whole archive
+/ media bands / channel lanes / programmes). You cross transitions in motion and
+always *rest* on a clean state. If you're already resting on a plateau, nothing
+moves: it only locks in, it never drags you off a deliberate rest.
+
 ### Why broadcast hours, not programme count
 
 The zoomed-out terrain encodes *amount of broadcast time* per bucket, normalised
