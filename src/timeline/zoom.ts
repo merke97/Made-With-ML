@@ -31,11 +31,13 @@ export const lerp = (a: number, b: number, t: number): number => a + (b - a) * t
 export const clamp = (x: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, x));
 
 // Transition bands, in zoom-value units. Tuned by feel; calm and physical.
+// The archive now spans a century, so the early splits happen at decade
+// scale (viewport ≈ 30y → 13y → 2y) while the day-scale bands stay put.
 //   archive ──split──> TV/Radio ──split──> channels ──resolve──> programmes
 export const BANDS = {
-  archiveToMedia: [1.0, 2.4] as const, // whole archive → TV / Radio bands
-  mediaToChannel: [3.2, 5.2] as const, // TV / Radio → individual channel lanes
-  aggregateToProgramme: [6.6, 8.6] as const, // density ribbon → programme bars
+  archiveToMedia: [-2.0, -0.8] as const, // whole archive → TV / Radio bands
+  mediaToChannel: [-0.2, 1.8] as const, // TV / Radio → individual channel lanes
+  aggregateToProgramme: [6.6, 8.6] as const, // density strata → programme bars
   labels: [8.8, 9.8] as const, // programme titles fade in when there's room
   metadata: [10.6, 11.6] as const, // richer per-programme detail
 };

@@ -1,20 +1,18 @@
 import { useEffect, useRef } from "react";
-import type { AggregateIndex } from "../data/aggregate";
-import type { ArchiveData } from "../data/generate";
+import type { Archive } from "../data/archive";
 import { TimelineRenderer } from "../timeline/renderer";
 import type { Store } from "../timeline/store";
 
 interface Props {
   store: Store;
-  data: ArchiveData;
-  agg: AggregateIndex;
+  archive: Archive;
   onReady: (renderer: TimelineRenderer) => void;
 }
 
 // Mounts the PixiJS canvas and translates pointer/wheel input into camera
 // moves. The model is map-like: drag pans both axes, wheel zooms under the
 // cursor (keeping the time under the cursor pinned).
-export function TimelineView({ store, data, agg, onReady }: Props) {
+export function TimelineView({ store, archive, onReady }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<TimelineRenderer | null>(null);
@@ -22,7 +20,7 @@ export function TimelineView({ store, data, agg, onReady }: Props) {
   useEffect(() => {
     const wrap = wrapRef.current!;
     const canvas = canvasRef.current!;
-    const renderer = new TimelineRenderer(data, agg, store);
+    const renderer = new TimelineRenderer(archive, store);
     let disposed = false;
 
     const rect = wrap.getBoundingClientRect();
@@ -167,7 +165,7 @@ export function TimelineView({ store, data, agg, onReady }: Props) {
       } else {
         // Gain tuned so years → hours is ~26 mouse-wheel notches. Trackpad
         // pinch arrives as ctrl+wheel with much smaller deltas — more gain.
-        const gain = e.ctrlKey ? 0.0095 : 0.0026;
+        const gain = e.ctrlKey ? 0.0105 : 0.0029;
         store.camera.zoomAt(x, Math.exp(e.deltaY * gain));
       }
     };

@@ -1,6 +1,5 @@
 import { Application, Container, Graphics, Text } from "pixi.js";
-import type { AggregateIndex } from "../data/aggregate";
-import type { ArchiveData } from "../data/generate";
+import type { Archive } from "../data/archive";
 import type { AggregateBucket, AggregateLevel, Channel, ProgrammeInstance } from "../data/types";
 import { RADIO_CHANNELS, TV_CHANNELS } from "../data/channels";
 import { computeLayout, GUTTER_W, RULER_H, type RenderTrack } from "./layout";
@@ -90,8 +89,7 @@ export class TimelineRenderer {
   private lastWatermarkText = "";
 
   constructor(
-    private data: ArchiveData,
-    private agg: AggregateIndex,
+    private archive: Archive,
     private store: Store,
   ) {}
 
@@ -204,7 +202,7 @@ export class TimelineRenderer {
     if (Math.abs(this.watermark.style.fontSize - targetSize) > 4) this.watermark.style.fontSize = targetSize;
     this.watermark.x = cam.viewportWidth - 36;
     this.watermark.y = RULER_H + (cam.viewportHeight - RULER_H) / 2;
-    this.watermark.alpha = 0.05 * z.pMedia;
+    this.watermark.alpha = 0.05 * z.pChannel;
     this.watermark.visible = this.watermark.alpha > 0.005;
   }
 
@@ -240,14 +238,6 @@ export class TimelineRenderer {
     }
   }
 
-  /** True if any current search match falls inside [startMs, endMs) for the channel. */
-  private bucketHasMatch(channelId: string, startMs: number, endMs: number): boolean {
-    const list = this.store.matchedByChannel.get(channelId);
-    if (!list || !list.length) return false;
-    const i = lowerBound(list, (p) => p.startMs, startMs);
-    return i < list.length && list[i].startMs < endMs;
-  }
-
   private drawChannelStratum(
     g: Graphics,
     channel: Channel,
@@ -259,17 +249,17 @@ export class TimelineRenderer {
   ) {
     if (alpha < 0.01) return;
     const cam = this.store.camera;
-    const lodData = this.agg.get(channel.id);
+    const lodData = this.archive.aggregates.get(channel.id);
     if (!lodData) return;
     const buckets = lodData[level].buckets;
     const max = lodData.max[level] || 1;
     const ink = inkFor(channel.mediaType);
     const st = this.store.state;
-    const queryActive = this.store.matchedSorted.length > 0;
+    const queryActive = this.store.queryActive;
 
     const fade = (b: AggregateBucket): number => {
       let a = alpha;
-      if (queryActive) a *= this.bucketHasMatch(channel.id, b.startMs, b.endMs) ? 1 : RECEDE;
+      if (queryActive) a *= this.store.bucketHasMatch(channel.id, b.startMs, b.endMs) ? 1 : RECEDE;
       if (st.showNews) a *= b.newsCount > 0 ? 1 : 0.25;
       return a;
     };
@@ -331,10 +321,9 @@ export class TimelineRenderer {
     pLabels: number,
   ) {
     const cam = this.store.camera;
-    const list = this.data.byChannel.get(track.trackId);
-    if (!list) return;
+    const list = this.archive.range(track.trackId, viewStart, viewEnd);
     const st = this.store.state;
-    const queryActive = this.store.matchedSorted.length > 0;
+    const queryActive = this.store.queryActive;
     const ink = inkFor(track.mediaType);
 
     const laneH = track.h;
@@ -344,9 +333,7 @@ export class TimelineRenderer {
     const y = cy - barH / 2;
     const r = Math.min(5, barH / 2);
 
-    let i = Math.max(0, lowerBound(list, (p) => p.endMs, viewStart) - 1);
-    for (; i < list.length; i++) {
-      const p = list[i];
+    for (const p of list) {
       if (p.startMs > viewEnd) break;
       const x = cam.timeToX(p.startMs);
       let w = (p.endMs - p.startMs) / cam.msPerPixel;
@@ -356,7 +343,7 @@ export class TimelineRenderer {
       if (w < 0.6) w = 0.6;
 
       const isNews = p.genre === "nyheder";
-      const isMatch = queryActive && this.store.matchedIds.has(p.id);
+      const isMatch = queryActive && this.store.matchesProgramme(p);
 
       // Lenses work by recession: everything outside them loses its pigment.
       let recede = 1;
@@ -482,17 +469,7 @@ export class TimelineRenderer {
     if (z.pProgramme < 0.4 || px < GUTTER_W) return null;
     const lane = this.channelRects.find((t) => py >= t.y && py <= t.y + t.h);
     if (!lane) return null;
-    const list = this.data.byChannel.get(lane.trackId);
-    if (!list) return null;
-    const t = cam.xToTime(px);
-    // Programmes are non-overlapping and sorted by start, so the candidate is
-    // the last one that started at or before t.
-    const idx = lowerBound(list, (p) => p.startMs, t) - 1;
-    if (idx >= 0 && idx < list.length) {
-      const p = list[idx];
-      if (t >= p.startMs && t <= p.endMs) return p;
-    }
-    return null;
+    return this.archive.at(lane.trackId, cam.xToTime(px));
   }
 
   setHovered(p: ProgrammeInstance | null) {

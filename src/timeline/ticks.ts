@@ -49,16 +49,24 @@ export function computeTicks(viewStart: number, viewEnd: number, msPerPixel: num
     return [smoothstep(GRID_IN[0], GRID_IN[1], px), smoothstep(LABEL_IN[0], LABEL_IN[1], px)];
   };
 
+  const [aYear, lYear] = fade(365 * MS.day);
   const [aMonth, lMonth] = fade(30 * MS.day);
   const [aDay, lDay] = fade(MS.day);
   const [a6h, l6h] = fade(6 * MS.hour);
   const [aHour, lHour] = fade(MS.hour);
 
-  // Years are the bedrock — always present, always labelled.
+  // A century of archive: decades are the bedrock — always present, always
+  // labelled. Years fade in beneath them as the zoom allows.
   {
+    const y0 = Math.floor(new Date(viewStart).getUTCFullYear() / 10) * 10;
+    const y1 = new Date(viewEnd).getUTCFullYear() + 10;
+    for (let y = y0; y <= y1; y += 10) push(Date.UTC(y, 0, 1), `${y}`, true, 1, 1);
+  }
+
+  if (aYear > 0.02) {
     const y0 = new Date(viewStart).getUTCFullYear();
     const y1 = new Date(viewEnd).getUTCFullYear() + 1;
-    for (let y = y0; y <= y1; y++) push(Date.UTC(y, 0, 1), `${y}`, true, 1, 1);
+    for (let y = y0; y <= y1; y++) push(Date.UTC(y, 0, 1), `${y}`, aMonth > 0.5, aYear, lYear);
   }
 
   if (aMonth > 0.02) {

@@ -84,17 +84,17 @@ export function CommandLine({ store, rendererRef }: Props) {
     if (open) inputRef.current?.focus();
   }, [open]);
 
-  const matches = store.matchedSorted;
   const date = parseDate(text);
   const lens = LENSES.find((l) => l.match.test(text.trim().toLowerCase()));
 
   const answer = (() => {
-    if (!text.trim()) return "søgeord · dato (15. juni 2021) · nyheder · kun tilgængelige";
+    if (!text.trim()) return "søgeord · dato (15. juni 1978) · nyheder · kun tilgængelige";
     if (lens) return `enter — ${state[lens.key] ? "sluk" : "tænd"} linsen “${lens.label}”`;
     if (date) return `enter — flyv til ${formatDay(date.ms)}`;
     if (text.trim().length < 2) return "skriv videre …";
-    if (!matches.length) return "ingen udsendelser · resten af arkivet står urørt";
-    return `${matches.length.toLocaleString("da-DK")} udsendelser · ældste ${formatDay(matches[0].startMs)} · enter flyver til nærmeste`;
+    if (!store.queryActive) return "ingen udsendelser · resten af arkivet står urørt";
+    const from = store.oldestMs !== null ? new Date(store.oldestMs).getUTCFullYear() : "";
+    return `ca. ${store.estimatedCount.toLocaleString("da-DK")} udsendelser · fra ${from} · enter flyver til nærmeste`;
   })();
 
   const onChange = (v: string) => {
@@ -119,25 +119,21 @@ export function CommandLine({ store, rendererRef }: Props) {
       setOpen(false);
       return;
     }
-    if (matches.length) {
-      // Fly to the match nearest ahead of the current view centre.
-      const center = store.camera.centerTimeMs;
-      let lo = 0,
-        hi = matches.length;
-      while (lo < hi) {
-        const mid = (lo + hi) >>> 1;
-        if (matches[mid].startMs < center) lo = mid + 1;
-        else hi = mid;
+    if (store.queryActive) {
+      // Clamp into the nearest matching era, then find a concrete broadcast.
+      const target = store.findNearestMatch(store.camera.centerTimeMs);
+      if (target) {
+        rendererRef.current?.flyTo((target.startMs + target.endMs) / 2, MS.day / 1400);
+        store.select(target);
+        setOpen(false); // the query stays — the world remains focused
       }
-      const target = matches[Math.min(lo, matches.length - 1)];
-      rendererRef.current?.flyTo((target.startMs + target.endMs) / 2, MS.day / 1400);
-      store.select(target);
-      setOpen(false); // the query stays — the world remains focused
     }
   };
 
   const activeLenses = [
-    state.query.trim().length >= 2 ? `“${state.query.trim()}” · ${matches.length.toLocaleString("da-DK")}` : null,
+    state.query.trim().length >= 2 && store.queryActive
+      ? `“${state.query.trim()}” · ca. ${store.estimatedCount.toLocaleString("da-DK")}`
+      : null,
     state.showNews ? "nyheder" : null,
     state.dimRestricted ? "kun tilgængelige" : null,
   ].filter(Boolean);

@@ -53,9 +53,11 @@ export function FirstRunWhisper() {
     };
     window.addEventListener("wheel", dismiss, { passive: true, once: true });
     window.addEventListener("pointerdown", dismiss, { passive: true, once: true });
+    window.addEventListener("keydown", dismiss, { once: true });
     return () => {
       window.removeEventListener("wheel", dismiss);
       window.removeEventListener("pointerdown", dismiss);
+      window.removeEventListener("keydown", dismiss);
     };
   }, [gone]);
 

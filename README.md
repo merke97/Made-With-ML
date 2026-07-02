@@ -22,8 +22,23 @@ line. Six encodings — medium, amount, state, focus, selection, place — and
 anything on screen that can't point at one of them gets deleted.
 
 This is the **fake-data prototype** described in the project brief (step 14): its
-job is to prove the *interaction*, not data accuracy. It runs on ~10 channels of
-synthetic broadcasts over 5 years (2019–2023).
+job is to prove the *interaction*, not data accuracy. The synthetic archive is
+shaped like the real one: **a century of broadcasting (1925–2026)** across 12
+channels with real launch and closure dates (radio from 1925, television from
+1954, DR3/DR K/DR Ultra ending as broadcast channels in 2020), era profiles
+where the broadcast day grows from a few evening hours to 24/7, an era-gated
+title catalogue (Pressens Radioavis before Radioavisen, TV Aktuelt before
+TV Avisen, Matador in 1978, X Factor in 2008), availability that mirrors
+digitisation history, and weekly/seasonal rhythm (Saturday sport, Sunday film
+and højmesse, July reruns, a julekalender every December).
+
+A century is far too much to materialise eagerly, so the engine mirrors the
+production tile-server split: **aggregates for the whole span are computed
+procedurally at startup**, while **individual broadcasts are generated
+deterministically per (channel, day)** only when the camera needs them, behind
+an LRU cache. Search runs against the title catalogue and resolves to
+per-channel era intervals — which is why searching "Matador" makes the entire
+century recede except 1978–1985 on DR1.
 
 ## Run it
 
