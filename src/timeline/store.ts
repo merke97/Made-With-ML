@@ -24,8 +24,10 @@ export class Store {
 
   /** Ids matching the current query (for bar highlight). */
   matchedIds: Set<string> = new Set();
-  /** Matching programmes sorted by start (for aggregate-zoom hit markers). */
+  /** Matching programmes sorted by start (for fly-to-match and counts). */
   matchedSorted: ProgrammeInstance[] = [];
+  /** Matches per channel, sorted by start — lets strata recede at any zoom. */
+  matchedByChannel: Map<string, ProgrammeInstance[]> = new Map();
 
   private listeners = new Set<() => void>();
   private data: ArchiveData;
@@ -49,10 +51,18 @@ export class Store {
     if (q.length < 2) {
       this.matchedIds = new Set();
       this.matchedSorted = [];
+      this.matchedByChannel = new Map();
     } else {
       const matched = this.data.programmes.filter((p) => p.search.includes(q));
       this.matchedIds = new Set(matched.map((p) => p.id));
       this.matchedSorted = matched; // already sorted by start
+      const byChannel = new Map<string, ProgrammeInstance[]>();
+      for (const p of matched) {
+        let list = byChannel.get(p.channelId);
+        if (!list) byChannel.set(p.channelId, (list = []));
+        list.push(p); // per-channel lists inherit the global start order
+      }
+      this.matchedByChannel = byChannel;
     }
     this.emit();
   }

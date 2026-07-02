@@ -3,10 +3,10 @@ import { buildAggregates, type AggregateIndex } from "./data/aggregate";
 import { generateArchive, type ArchiveData } from "./data/generate";
 import type { TimelineRenderer } from "./timeline/renderer";
 import { Store } from "./timeline/store";
-import { DetailPanel } from "./ui/DetailPanel";
-import { HelpHint, Legend, StatusReadout } from "./ui/Overlays";
+import { CommandLine } from "./ui/CommandLine";
+import { MetaFloat } from "./ui/MetaFloat";
+import { BrandWhisper, FirstRunWhisper } from "./ui/Overlays";
 import { TimelineView } from "./ui/TimelineView";
-import { Toolbar } from "./ui/Toolbar";
 
 interface Built {
   data: ArchiveData;
@@ -40,7 +40,7 @@ export default function App() {
     return (
       <div className="splash">
         <div className="splash-mark">DR</div>
-        <div className="splash-title">Arkivets Tidskort</div>
+        <div className="splash-title">Tidsrummet</div>
         <div className="splash-sub">Bygger det syntetiske arkiv…</div>
         <div className="splash-bar">
           <span />
@@ -52,7 +52,6 @@ export default function App() {
   const { data, agg, store } = built;
   return (
     <div className="app">
-      <Toolbar store={store} rendererRef={rendererRef} />
       <main className="stage">
         <TimelineView
           store={store}
@@ -63,10 +62,10 @@ export default function App() {
             setReady(true);
           }}
         />
-        <StatusReadout store={store} />
-        <Legend />
-        <HelpHint />
-        <DetailPanel store={store} />
+        <BrandWhisper />
+        <FirstRunWhisper />
+        <MetaFloat store={store} rendererRef={rendererRef} />
+        <CommandLine store={store} rendererRef={rendererRef} />
       </main>
     </div>
   );

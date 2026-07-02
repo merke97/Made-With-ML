@@ -1,4 +1,4 @@
-# DR Archive · Temporal Explorer
+# Tidsrummet · DR Arkiv
 
 A browser prototype that turns the DR archive into a **temporal map**: a single
 continuous, zoomable world where *horizontal movement is time* and *zoom is
@@ -9,6 +9,17 @@ finally individual broadcasts.
 > The most important idea: the user never feels they *changed view* — they feel
 > they *changed scale*. Even though the renderer serves different aggregate data
 > at each level, the animation makes it feel like one archive resolving into focus.
+
+**Design ("Tidsrummet"):** the archive is one pigmented object floating on warm
+daylight paper — no boxes, no panels, no legend, and (almost) no written labels.
+Identity is carried by the material itself: television is cool blue, hard
+bucket-cut *blocks* (the picture tube); radio is warm amber, a smooth continuous
+*ribbon* (the dial lamp). Density is pigment depth; availability is the
+material's state (full pigment / hollow outline / washed out); search and lenses
+work by *recession* — everything outside them loses its pigment. The only red on
+screen belongs to the selection. All controls live in one summonable command
+line. Six encodings — medium, amount, state, focus, selection, place — and
+anything on screen that can't point at one of them gets deleted.
 
 This is the **fake-data prototype** described in the project brief (step 14): its
 job is to prove the *interaction*, not data accuracy. It runs on ~10 channels of
@@ -33,11 +44,12 @@ Requires Node 18+. The timeline renders with WebGL (PixiJS); any modern browser 
 | **Scroll / wheel** | Zoom in/out, anchored under the cursor |
 | **Double-click / double-tap** | Fly one semantic level deeper (⇧ + double-click: back out) |
 | **Shift + wheel** | Pan horizontally through time |
-| **Click a programme** | Open the detail panel |
-| **Search box** | Highlights matching broadcasts on the timeline (clusters glow) |
-| **Nyheder toggle** | Overlay TV Avisen / Radioavisen |
-| **Dæmp begrænset** | Fade access-restricted broadcasts |
-| **Gå til dato** | Jump straight to a date at day-level detail |
+| **Click a programme** | It lifts from the paper; its metadata is set beside it |
+| **`/` or just type** | The command line rises: search words recede everything else |
+| **Type a date** (`15. juni 2021`, `juni 2021`, `2021`) | Enter flies there |
+| **Type `nyheder` / `kun tilgængelige`** | Toggles a lens; the rest of the archive pales |
+| **Enter on a search** | Flies to (and selects) the nearest match |
+| **Esc** | Unwinds: closes the line, clears the lens, drops the selection |
 
 ## What it demonstrates (MVP checklist)
 
@@ -53,9 +65,13 @@ Requires Node 18+. The timeline renders with WebGL (PixiJS); any modern browser 
 
 ## Architecture
 
-React owns the chrome (toolbar, panels, overlays); **PixiJS** renders the
-timeline like a graphics application — no DOM node per programme. The renderer is
-immediate-mode and reads a tiny virtual camera every frame.
+React owns the little chrome that remains (command line, meta float, whispers);
+**PixiJS** renders the timeline like a graphics application — no DOM node per
+programme. The canvas is transparent (the page paints the daylight gradient) and
+a CSS mask fades the world out at the screen edges. The renderer is
+immediate-mode and reads a tiny virtual camera every frame. The same per-channel
+strata are drawn inside the archive band, the media bands and the channel lanes,
+so every zoom transition is one object's layers gliding apart.
 
 ```
 src/

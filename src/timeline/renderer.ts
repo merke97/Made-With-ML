@@ -1,31 +1,32 @@
-import { Application, Container, Graphics } from "pixi.js";
-import type { AggregateIndex, TrackLOD } from "../data/aggregate";
+import { Application, Container, Graphics, Text } from "pixi.js";
+import type { AggregateIndex } from "../data/aggregate";
 import type { ArchiveData } from "../data/generate";
-import type { AggregateLevel, ProgrammeInstance } from "../data/types";
+import type { AggregateBucket, AggregateLevel, Channel, ProgrammeInstance } from "../data/types";
+import { RADIO_CHANNELS, TV_CHANNELS } from "../data/channels";
 import { computeLayout, GUTTER_W, RULER_H, type RenderTrack } from "./layout";
 import type { Store } from "./store";
 import { TextPool } from "./textpool";
 import { computeTicks } from "./ticks";
 import { clamp, computeZoomState, MS, smoothstep } from "./zoom";
+import { DR_RED, INK, INK_DIM, inkFor, mixColor, PAPER_TEXT, pigment } from "./theme";
 
-// ── palette ────────────────────────────────────────────────────────────────
-// "Parchment & ink": a light, warm Royal-Library palette. Density now reads as
-// ink laid down on paper (more broadcast time = more saturated), the inverse of
-// the old dark heatmap. Text is dark ink; one brass gold + DR red carry accents.
-const BG = 0xf4eee2; // warm parchment
-const GUTTER_BG = 0xefe7d6; // a touch deeper paper
-const RULER_BG = 0xf1ead9;
-const HAIR = 0xd9cdb6; // muted taupe rule
-const TEXT_DIM = 0x7c715c; // soft brown-grey
-const TEXT_BRIGHT = 0x2c2620; // warm near-black ink
-const COL_ARCHIVE = 0x8a7d66; // whole-archive terrain (muted taupe ink)
-const COL_TV = 0x3f6e8c; // muted petrol blue
-const COL_RADIO = 0xb0743a; // muted terracotta
-const COL_NEWS = 0xb08832; // brass gold
-const COL_SEARCH = 0x1f8a86; // deep teal
-const COL_SELECT = 0x211c15; // ink ring (high contrast on paper)
+// Tidsrummet: the archive is one pigmented object on warm paper. The canvas is
+// transparent — the page supplies the daylight gradient — and the CSS mask on
+// the canvas fades everything out at the edges, so nothing has a border.
+//
+// Identity is carried by the material, never by written labels:
+//   television = cool blue, hard bucket-cut blocks (the picture tube)
+//   radio      = warm amber, a smooth continuous ribbon (the dial lamp)
+// The same per-channel strata are drawn inside the archive band, the media
+// bands and the channel lanes, so every zoom transition is one object's layers
+// gliding apart — never a picture being swapped for another.
 
-const mediaColor = (t?: string) => (t === "tv" ? COL_TV : t === "radio" ? COL_RADIO : COL_ARCHIVE);
+const SERIF = '"Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif';
+const GROT = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
+
+const STRATUM_MAX_H = 16;
+const STRATUM_GAP = 5;
+const RECEDE = 0.12; // alpha multiplier for material outside an active lens
 
 function lowerBound<T>(arr: T[], key: (t: T) => number, value: number): number {
   let lo = 0,
@@ -60,20 +61,33 @@ function levelBlend(msPerPixel: number): LevelBlend {
   return { a: "year", b: null, t: 0 };
 }
 
+export interface ScreenRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export class TimelineRenderer {
   app = new Application();
   private root = new Container();
+  private watermark!: Text;
   private ribbonG = new Graphics();
   private barsG = new Graphics();
   private overlayG = new Graphics();
-  private chromeG = new Graphics(); // gutter + ruler panels + gridlines
+  private chromeG = new Graphics();
   private titlePool!: TextPool;
-  private gutterPool!: TextPool;
+  private monoPool!: TextPool;
   private rulerPool!: TextPool;
 
   private hoveredProgramme: ProgrammeInstance | null = null;
+  private pointerY = -1;
   /** Cache of last frame's channel lane rects for hit-testing. */
   private channelRects: RenderTrack[] = [];
+  /** Screen rect of the lifted (selected) bar this frame, for the meta float. */
+  private selectedRect: ScreenRect | null = null;
+  private selCandidate: ScreenRect | null = null;
+  private lastWatermarkText = "";
 
   constructor(
     private data: ArchiveData,
@@ -86,19 +100,35 @@ export class TimelineRenderer {
       canvas,
       width,
       height,
-      background: BG,
+      backgroundAlpha: 0, // the page paints the daylight gradient
       antialias: true,
       resolution: Math.min(2, window.devicePixelRatio || 1),
       autoDensity: true,
     });
     this.store.camera.setViewport(width, height);
 
-    this.root.addChild(this.ribbonG, this.barsG, this.overlayG, this.chromeG);
+    this.watermark = new Text({
+      text: "",
+      style: { fontFamily: SERIF, fontSize: 220, fontWeight: "500", fill: 0xffffff },
+    });
+    this.watermark.anchor.set(1, 0.5);
+    this.watermark.tint = INK;
+    this.watermark.resolution = 1.5;
+
+    this.root.addChild(this.watermark, this.ribbonG, this.barsG, this.overlayG, this.chromeG);
     this.app.stage.addChild(this.root);
 
-    this.titlePool = new TextPool(this.root, { fill: 0xffffff, fontSize: 12, fontFamily: "system-ui, sans-serif" });
-    this.gutterPool = new TextPool(this.root, { fill: 0xffffff, fontSize: 13, fontFamily: "system-ui, sans-serif" });
-    this.rulerPool = new TextPool(this.root, { fill: 0xffffff, fontSize: 11, fontFamily: "system-ui, sans-serif" });
+    this.titlePool = new TextPool(this.root, { fill: 0xffffff, fontSize: 12, fontFamily: GROT });
+    this.monoPool = new TextPool(this.root, {
+      fill: 0xffffff,
+      fontSize: 10,
+      fontFamily: GROT,
+      fontWeight: "600",
+      letterSpacing: 2,
+      // A paper halo so the etched monogram stays readable over pigment.
+      stroke: { color: 0xf6f1e6, width: 3, join: "round" },
+    });
+    this.rulerPool = new TextPool(this.root, { fill: 0xffffff, fontSize: 11, fontFamily: GROT });
 
     this.app.ticker.add((ticker) => this.draw(ticker.deltaMS));
   }
@@ -127,119 +157,172 @@ export class TimelineRenderer {
     const viewStart = cam.viewStartMs;
     const viewEnd = cam.viewEndMs;
     const lod = levelBlend(cam.msPerPixel);
+    this.selCandidate = null;
 
+    this.drawWatermark(z);
     this.titlePool.begin();
+    this.monoPool.begin();
 
     for (const track of layout.tracks) {
       if (track.alpha < 0.01) continue;
       if (track.kind === "channel") {
-        // Aggregate ribbon resolves into individual programme bars.
+        // Aggregate stratum resolves into individual programme bars.
         const ribbonAlpha = track.alpha * (1 - z.pProgramme);
-        if (ribbonAlpha > 0.01) {
-          this.drawRibbon(ribbon, track, lod.a, viewStart, viewEnd, ribbonAlpha * (lod.b ? 1 - lod.t : 1));
-          if (lod.b && lod.t > 0.02) this.drawRibbon(ribbon, track, lod.b, viewStart, viewEnd, ribbonAlpha * lod.t);
+        if (ribbonAlpha > 0.01 && track.channel) {
+          this.drawStrataGroup(ribbon, [track.channel], track, ribbonAlpha, lod, viewStart, viewEnd);
         }
         if (z.pProgramme > 0.01) {
-          this.drawProgrammes(bars, overlay, track, viewStart, viewEnd, z.pProgramme, z.pLabels);
+          this.drawProgrammes(bars, track, viewStart, viewEnd, z.pProgramme, z.pLabels);
         }
-        this.drawLaunchHatch(overlay, track);
+      } else if (track.kind === "media") {
+        const channels = track.mediaType === "tv" ? TV_CHANNELS : RADIO_CHANNELS;
+        this.drawStrataGroup(ribbon, channels, track, track.alpha, lod, viewStart, viewEnd);
       } else {
-        // Archive / TV / Radio aggregate density bands — a smooth terrain ridge.
-        this.drawRidge(ribbon, track, lod.a, viewStart, viewEnd, track.alpha * (lod.b ? 1 - lod.t : 1));
-        if (lod.b && lod.t > 0.02) this.drawRidge(ribbon, track, lod.b, viewStart, viewEnd, track.alpha * lod.t);
-        if (this.store.state.showNews) {
-          this.drawNewsTerrain(overlay, track, lod.a, viewStart, viewEnd, track.alpha * (lod.b ? 1 - lod.t : 1));
-          if (lod.b && lod.t > 0.02) this.drawNewsTerrain(overlay, track, lod.b, viewStart, viewEnd, track.alpha * lod.t);
-        }
+        // Whole archive: all ten strata, TV above radio, one object.
+        this.drawStrataGroup(ribbon, [...TV_CHANNELS, ...RADIO_CHANNELS], track, track.alpha, lod, viewStart, viewEnd, TV_CHANNELS.length);
       }
     }
 
-    // Search hit markers light up clusters at aggregate zoom.
-    if (this.store.matchedSorted.length && z.pProgramme < 0.6) {
-      this.drawSearchTerrain(overlay, viewStart, viewEnd, 1 - z.pProgramme);
-    }
+    this.drawSelectionLift(overlay, z);
+    this.drawMonograms(layout, z);
 
     this.titlePool.end();
-    this.drawChrome(z, layout, viewStart, viewEnd);
+    this.monoPool.end();
+    this.drawChrome(z, viewStart, viewEnd);
   }
 
-  private drawRibbon(
-    g: Graphics,
-    track: RenderTrack,
-    level: AggregateLevel,
-    viewStart: number,
-    viewEnd: number,
-    alpha: number,
-  ) {
+  /** The current year, pressed faintly into the paper for orientation. */
+  private drawWatermark(z: ReturnType<typeof computeZoomState>) {
     const cam = this.store.camera;
-    const lod = this.agg.get(track.trackId);
-    if (!lod) return;
-    const series = lod[level];
-    const max = (lod.max as Record<AggregateLevel, number>)[level] || 1;
-    const buckets = series.buckets;
-    const base = mediaColor(track.mediaType);
-
-    const top = track.y + 2;
-    const h = Math.max(2, track.h - 4);
-
-    let i = Math.max(0, lowerBound(buckets, (b) => b.endMs, viewStart) - 1);
-    for (; i < buckets.length; i++) {
-      const b = buckets[i];
-      if (b.startMs > viewEnd) break;
-      const x = cam.timeToX(b.startMs);
-      const w = Math.max(1, (b.endMs - b.startMs) / cam.msPerPixel);
-      if (x + w < GUTTER_W) continue;
-      // Brightness encodes broadcast hours (the base terrain metric).
-      const t = Math.pow(clamp(b.broadcastMs / max, 0, 1), 0.6);
-      g.rect(x, top, w + 0.5, h).fill({ color: base, alpha: alpha * (0.12 + 0.82 * t) });
+    const year = String(new Date(cam.centerTimeMs).getUTCFullYear());
+    if (year !== this.lastWatermarkText) {
+      this.watermark.text = year;
+      this.lastWatermarkText = year;
     }
+    const targetSize = Math.round(clamp(cam.viewportHeight * 0.36, 120, 280));
+    if (Math.abs(this.watermark.style.fontSize - targetSize) > 4) this.watermark.style.fontSize = targetSize;
+    this.watermark.x = cam.viewportWidth - 36;
+    this.watermark.y = RULER_H + (cam.viewportHeight - RULER_H) / 2;
+    this.watermark.alpha = 0.05 * z.pMedia;
+    this.watermark.visible = this.watermark.alpha > 0.005;
   }
 
   /**
-   * Tall aggregate bands (Archive / TV / Radio) drawn as a smooth terrain ridge:
-   * height encodes broadcast hours, filled soft with a brighter crest line. Far
-   * calmer than a wall of per-bucket rectangles, and the metaphor reads instantly
-   * — more material = taller, denser ground.
+   * A stack of per-channel strata centred in a band rect. The same function
+   * renders the archive band (all channels), the media bands (their channels)
+   * and a single channel's aggregate ribbon — so zooming reads as the one
+   * object's layers gliding apart, never a change of picture.
    */
-  private drawRidge(
+  private drawStrataGroup(
     g: Graphics,
+    channels: Channel[],
     track: RenderTrack,
+    alpha: number,
+    lod: LevelBlend,
+    viewStart: number,
+    viewEnd: number,
+    splitAfter = -1,
+  ) {
+    const n = channels.length;
+    const splitGap = splitAfter > 0 ? 16 : 0;
+    const stratumH = clamp((track.h * 0.62 - (n - 1) * STRATUM_GAP - splitGap) / n, 5, STRATUM_MAX_H);
+    const groupH = n * stratumH + (n - 1) * STRATUM_GAP + splitGap;
+    let y = track.y + (track.h - groupH) / 2;
+
+    for (let i = 0; i < n; i++) {
+      if (i === splitAfter) y += splitGap;
+      const c = channels[i];
+      const rect = { y, h: stratumH };
+      this.drawChannelStratum(g, c, rect, alpha * (lod.b ? 1 - lod.t : 1), lod.a, viewStart, viewEnd);
+      if (lod.b && lod.t > 0.02) this.drawChannelStratum(g, c, rect, alpha * lod.t, lod.b, viewStart, viewEnd);
+      y += stratumH + STRATUM_GAP;
+    }
+  }
+
+  /** True if any current search match falls inside [startMs, endMs) for the channel. */
+  private bucketHasMatch(channelId: string, startMs: number, endMs: number): boolean {
+    const list = this.store.matchedByChannel.get(channelId);
+    if (!list || !list.length) return false;
+    const i = lowerBound(list, (p) => p.startMs, startMs);
+    return i < list.length && list[i].startMs < endMs;
+  }
+
+  private drawChannelStratum(
+    g: Graphics,
+    channel: Channel,
+    rect: { y: number; h: number },
+    alpha: number,
     level: AggregateLevel,
     viewStart: number,
     viewEnd: number,
-    alpha: number,
   ) {
+    if (alpha < 0.01) return;
     const cam = this.store.camera;
-    const lod = this.agg.get(track.trackId);
-    if (!lod) return;
-    const buckets = lod[level].buckets;
-    const max = (lod.max as Record<AggregateLevel, number>)[level] || 1;
-    const base = mediaColor(track.mediaType);
+    const lodData = this.agg.get(channel.id);
+    if (!lodData) return;
+    const buckets = lodData[level].buckets;
+    const max = lodData.max[level] || 1;
+    const ink = inkFor(channel.mediaType);
+    const st = this.store.state;
+    const queryActive = this.store.matchedSorted.length > 0;
 
-    const baseY = track.y + track.h - 3;
-    const usableH = Math.max(8, track.h - 9);
+    const fade = (b: AggregateBucket): number => {
+      let a = alpha;
+      if (queryActive) a *= this.bucketHasMatch(channel.id, b.startMs, b.endMs) ? 1 : RECEDE;
+      if (st.showNews) a *= b.newsCount > 0 ? 1 : 0.25;
+      return a;
+    };
 
-    const top: number[] = [];
     let i = Math.max(0, lowerBound(buckets, (b) => b.endMs, viewStart) - 1);
-    for (; i < buckets.length; i++) {
-      const b = buckets[i];
-      if (b.startMs > viewEnd) break;
-      const xMid = Math.max(GUTTER_W, cam.timeToX((b.startMs + b.endMs) / 2));
-      const t = Math.pow(clamp(b.broadcastMs / max, 0, 1), 0.6);
-      top.push(xMid, baseY - t * usableH);
-    }
-    if (top.length < 4) return;
 
-    const firstX = top[0];
-    const lastX = top[top.length - 2];
-    // Filled body down to the baseline, then a crisp crest line on top.
-    g.poly([firstX, baseY, ...top, lastX, baseY]).fill({ color: base, alpha: alpha * 0.5 });
-    g.poly(top, false).stroke({ width: 1.5, color: base, alpha: alpha * 0.85 });
+    if (channel.mediaType === "tv") {
+      // The picture tube: hard bucket-cut blocks; depth of pigment is density.
+      const top = rect.y;
+      const h = Math.max(2, rect.h);
+      for (; i < buckets.length; i++) {
+        const b = buckets[i];
+        if (b.startMs > viewEnd) break;
+        if (b.broadcastMs <= 0) continue;
+        const x = cam.timeToX(b.startMs);
+        const w = Math.max(1, (b.endMs - b.startMs) / cam.msPerPixel);
+        if (x + w < 0) continue;
+        // Density clusters near the top of the range, so spread it (^1.6)
+        // to make the pigment actually vary along the band.
+        const t = Math.pow(clamp(b.broadcastMs / max, 0, 1), 1.6);
+        const gap = w > 4 ? 1 : 0;
+        g.rect(x, top, w - gap + 0.5, h).fill({ color: pigment(ink, t), alpha: fade(b) * (0.3 + 0.7 * t) });
+      }
+    } else {
+      // The dial lamp: a smooth continuous ribbon; thickness breathes with density.
+      const cy = rect.y + rect.h / 2;
+      const half = (t: number) => Math.max(0.6, (rect.h / 2) * (0.22 + 0.78 * t));
+      const density = (b: AggregateBucket) =>
+        b.broadcastMs > 0 ? Math.pow(clamp(b.broadcastMs / max, 0, 1), 1.3) : 0;
+      const quad = (x0: number, t0: number, x1: number, t1: number, a: number) => {
+        const tm = (t0 + t1) / 2;
+        g.poly([x0, cy - half(t0), x1, cy - half(t1), x1, cy + half(t1), x0, cy + half(t0)]).fill({
+          color: pigment(ink, tm),
+          alpha: a * (0.55 + 0.45 * tm),
+        });
+      };
+      let prev: { x: number; t: number; b: AggregateBucket } | null = null;
+      for (; i < buckets.length; i++) {
+        const b = buckets[i];
+        if (b.startMs > viewEnd) break;
+        const xMid = cam.timeToX((b.startMs + b.endMs) / 2);
+        const t = density(b);
+        if (!prev && t > 0) quad(cam.timeToX(b.startMs), t, xMid, t, fade(b)); // leading cap
+        if (prev && xMid > prev.x && (prev.t > 0 || t > 0)) {
+          quad(prev.x, prev.t, xMid, t, (fade(prev.b) + fade(b)) / 2);
+        }
+        prev = { x: xMid, t, b };
+      }
+      if (prev && prev.t > 0) quad(prev.x, prev.t, cam.timeToX(prev.b.endMs), prev.t, fade(prev.b)); // trailing cap
+    }
   }
 
   private drawProgrammes(
     bars: Graphics,
-    overlay: Graphics,
     track: RenderTrack,
     viewStart: number,
     viewEnd: number,
@@ -251,13 +334,14 @@ export class TimelineRenderer {
     if (!list) return;
     const st = this.store.state;
     const queryActive = this.store.matchedSorted.length > 0;
+    const ink = inkFor(track.mediaType);
 
     const laneH = track.h;
-    const innerH = Math.max(4, laneH - 8);
-    const barH = innerH * (0.18 + 0.82 * pProg);
+    const innerH = Math.max(4, laneH - 10);
+    const barH = innerH * (0.18 + 0.82 * pProg) * 0.62;
     const cy = track.y + laneH / 2;
     const y = cy - barH / 2;
-    const r = Math.min(4, barH / 2);
+    const r = Math.min(5, barH / 2);
 
     let i = Math.max(0, lowerBound(list, (p) => p.endMs, viewStart) - 1);
     for (; i < list.length; i++) {
@@ -265,181 +349,129 @@ export class TimelineRenderer {
       if (p.startMs > viewEnd) break;
       const x = cam.timeToX(p.startMs);
       let w = (p.endMs - p.startMs) / cam.msPerPixel;
-      if (x + w < GUTTER_W || w <= 0) continue;
-      const drawX = Math.max(x, GUTTER_W);
+      if (x + w < 0 || w <= 0) continue;
+      const drawX = Math.max(x, 0);
       w = w - (drawX - x);
       if (w < 0.6) w = 0.6;
 
-      const color = mediaColor(p.mediaType);
-      const isNews = st.showNews && p.genre === "nyheder";
+      const isNews = p.genre === "nyheder";
       const isMatch = queryActive && this.store.matchedIds.has(p.id);
 
-      // Availability: solid = playable, dim = restricted, faint = unknown.
-      let a = pProg;
-      if (p.access === "restricted") a *= st.dimRestricted ? 0.22 : 0.42;
-      else if (p.access === "unknown") a *= 0.55;
-      else if (p.access === "metadata_only") a *= 0.75;
-      if (queryActive && !isMatch) a *= 0.32;
+      // Lenses work by recession: everything outside them loses its pigment.
+      let recede = 1;
+      if (queryActive && !isMatch) recede *= RECEDE;
+      if (st.showNews && !isNews) recede *= 0.18;
 
       const gap = w > 3 ? 0.5 : 0;
-      bars.roundRect(drawX, y, Math.max(0.6, w - gap), barH, r).fill({ color, alpha: a });
+      const bw = Math.max(0.6, w - gap);
+      const solid = p.access === "available";
 
-      // metadata_only reads as an outline rather than a solid fill.
-      if (p.access === "metadata_only" && w > 3) {
-        bars.roundRect(drawX, y, w - gap, barH, r).stroke({ width: 1, color, alpha: pProg * 0.7 });
+      if (p.access === "metadata_only") {
+        // Hollow outline: the record exists, the material does not.
+        bars.roundRect(drawX, y, bw, barH, r).fill({ color: ink.base, alpha: pProg * recede * 0.05 });
+        if (w > 3) bars.roundRect(drawX, y, bw, barH, r).stroke({ width: 1, color: ink.base, alpha: pProg * recede * 0.8 });
+      } else if (p.access === "restricted") {
+        const washed = st.dimRestricted ? 0.08 : 0.2;
+        bars.roundRect(drawX, y, bw, barH, r).fill({ color: ink.base, alpha: pProg * recede * washed });
+      } else if (p.access === "unknown") {
+        bars.roundRect(drawX, y, bw, barH, r).fill({ color: ink.base, alpha: pProg * recede * 0.32 });
+      } else {
+        bars.roundRect(drawX, y, bw, barH, r).fill({ color: ink.base, alpha: pProg * recede });
       }
 
-      if (isNews && w > 2) {
-        overlay.roundRect(drawX - 1, y - 1, w - gap + 2, barH + 2, r).stroke({ width: 1.5, color: COL_NEWS, alpha: pProg });
+      if (this.hoveredProgramme && this.hoveredProgramme.id === p.id) {
+        bars.roundRect(drawX, y, bw, barH, r).fill({ color: 0xffffff, alpha: pProg * 0.16 });
       }
-      if (isMatch) {
-        overlay.roundRect(drawX - 1.5, y - 1.5, w - gap + 3, barH + 3, r + 1).stroke({ width: 2, color: COL_SEARCH, alpha: 0.95 });
-      }
+
       if (st.selected && st.selected.id === p.id) {
-        overlay.roundRect(drawX - 2, y - 2, w - gap + 4, barH + 4, r + 1).stroke({ width: 2, color: COL_SELECT, alpha: 1 });
+        this.selCandidate = { x: drawX, y, w: bw, h: barH };
       }
 
-      // Labels fade in with bar width (no pop at a hard pixel gate) — and are
-      // clipped to the bar so titles never bleed across neighbours.
-      if (pLabels > 0.02 && w > 40) {
+      // Labels fade in with bar width; ink on washes, paper on solid pigment.
+      const labelBase = pLabels * recede;
+      if (labelBase > 0.06 && w > 40) {
         const widthAlpha = smoothstep(40, 72, w);
         const budget = Math.floor((w - 14) / 6.4);
         if (budget >= 3 && widthAlpha > 0.02) {
           const label = p.title.length > budget ? p.title.slice(0, budget - 1) + "…" : p.title;
-          this.titlePool.next(label, drawX + 6, cy - 7, pLabels * widthAlpha * Math.min(1, a + 0.4), TEXT_BRIGHT);
+          const tint = solid ? PAPER_TEXT : INK;
+          this.titlePool.next(label, drawX + 7, cy - 7, labelBase * widthAlpha, tint);
         }
       }
     }
   }
 
-  /** A subtle hatch over the period before a channel launched (lane stays put). */
-  private drawLaunchHatch(overlay: Graphics, track: RenderTrack) {
-    const c = track.channel;
-    if (!c) return;
-    const cam = this.store.camera;
-    const launchX = cam.timeToX(c.activeFromMs);
-    if (launchX <= GUTTER_W) return;
-    const x0 = GUTTER_W;
-    const x1 = Math.min(launchX, cam.viewportWidth);
-    if (x1 <= x0) return;
-    overlay.rect(x0, track.y + 2, x1 - x0, Math.max(2, track.h - 4)).fill({ color: 0xb8ac92, alpha: 0.3 * track.alpha });
-  }
-
-  private drawNewsTerrain(
-    overlay: Graphics,
-    track: RenderTrack,
-    level: AggregateLevel,
-    viewStart: number,
-    viewEnd: number,
-    alpha: number,
-  ) {
-    const cam = this.store.camera;
-    const lod = this.agg.get(track.trackId) as TrackLOD | undefined;
-    if (!lod) return;
-    const buckets = lod[level].buckets;
-    let maxNews = 1;
-    for (const b of buckets) maxNews = Math.max(maxNews, b.newsCount);
-    let i = Math.max(0, lowerBound(buckets, (b) => b.endMs, viewStart) - 1);
-    for (; i < buckets.length; i++) {
-      const b = buckets[i];
-      if (b.startMs > viewEnd) break;
-      if (!b.newsCount) continue;
-      const x = cam.timeToX(b.startMs);
-      const w = Math.max(1, (b.endMs - b.startMs) / cam.msPerPixel);
-      if (x + w < GUTTER_W) continue;
-      const t = b.newsCount / maxNews;
-      overlay.rect(x, track.y + 2, w + 0.5, 3).fill({ color: COL_NEWS, alpha: alpha * (0.2 + 0.7 * t) });
+  /** The chosen broadcast lifts from the paper: deeper shadow, brighter
+   *  pigment, and the product's only red drawn beneath it. */
+  private drawSelectionLift(overlay: Graphics, z: ReturnType<typeof computeZoomState>) {
+    const sel = this.store.state.selected;
+    const c = this.selCandidate;
+    if (!sel || !c || z.pProgramme < 0.4) {
+      this.selectedRect = null;
+      return;
     }
-  }
+    const ink = inkFor(sel.mediaType);
+    const r = Math.min(6, (c.h + 6) / 2);
 
-  private drawSearchTerrain(overlay: Graphics, viewStart: number, viewEnd: number, alpha: number) {
-    const cam = this.store.camera;
-    const list = this.store.matchedSorted;
-    const top = RULER_H;
-    const bottom = cam.viewportHeight;
-    let i = lowerBound(list, (p) => p.startMs, viewStart);
-    let drawn = 0;
-    const limit = 5000;
-    for (; i < list.length && drawn < limit; i++) {
-      const p = list[i];
-      if (p.startMs > viewEnd) break;
-      const x = cam.timeToX(p.startMs);
-      if (x < GUTTER_W) continue;
-      overlay.rect(x, top, 1.4, bottom - top).fill({ color: COL_SEARCH, alpha: 0.1 * alpha });
-      drawn++;
+    // A soft shadow, faked with three widening washes of ink.
+    for (const s of [
+      { pad: 12, dy: 13, a: 0.05 },
+      { pad: 6, dy: 9, a: 0.08 },
+      { pad: 2, dy: 5, a: 0.12 },
+    ]) {
+      overlay.roundRect(c.x - s.pad, c.y + s.dy, c.w + s.pad * 2, c.h + 6, r + s.pad / 2).fill({ color: INK, alpha: s.a });
     }
+    overlay.roundRect(c.x - 2, c.y - 3, c.w + 4, c.h + 6, r).fill({ color: mixColor(ink.base, 0xffffff, 0.16), alpha: 1 });
+    overlay.rect(c.x + c.w * 0.08, c.y + c.h + 7, c.w * 0.84, 2).fill({ color: DR_RED, alpha: 1 });
+
+    this.selectedRect = { x: c.x - 2, y: c.y - 3, w: c.w + 4, h: c.h + 6 };
   }
 
-  // ── chrome: gutter, ruler, gridlines, labels ──────────────────────────────
-  private drawChrome(
-    z: ReturnType<typeof computeZoomState>,
-    layout: ReturnType<typeof computeLayout>,
-    viewStart: number,
-    viewEnd: number,
-  ) {
+  /** Channel monograms, etched into the left fade; they wake near the cursor. */
+  private drawMonograms(layout: ReturnType<typeof computeLayout>, z: ReturnType<typeof computeZoomState>) {
+    if (z.pChannel < 0.05) return;
+    const cam = this.store.camera;
+    for (const track of this.channelRects) {
+      if (track.labelAlpha < 0.02) continue;
+      // Sits in the quiet zone above the lane's bars, never on top of them.
+      const ty = track.y + 3;
+      if (ty < RULER_H - 6 || ty > cam.viewportHeight) continue;
+      const near = this.pointerY >= track.y && this.pointerY <= track.y + track.h;
+      const alpha = track.labelAlpha * (near ? 1 : 0.55);
+      this.monoPool.next(track.label.toUpperCase(), 26, ty, alpha, near ? INK : INK_DIM);
+    }
+    void layout;
+  }
+
+  // ── chrome: frameless ruler, faint gridlines, hairline scroll thumb ───────
+  private drawChrome(z: ReturnType<typeof computeZoomState>, viewStart: number, viewEnd: number) {
     const cam = this.store.camera;
     const g = this.chromeG.clear();
     const ticks = computeTicks(viewStart, viewEnd, cam.msPerPixel);
 
     this.rulerPool.begin();
-    this.gutterPool.begin();
 
-    // Vertical gridlines behind nothing else (drawn over content but faint).
     for (const t of ticks) {
       const x = cam.timeToX(t.ms);
-      if (x < GUTTER_W || x > cam.viewportWidth) continue;
-      g.rect(x, RULER_H, 1, cam.viewportHeight - RULER_H).fill({ color: HAIR, alpha: (t.major ? 0.45 : 0.18) * t.alpha });
-    }
-
-    // Left gutter panel (opaque — masks content scrolled/overflowing left).
-    g.rect(0, 0, GUTTER_W, cam.viewportHeight).fill({ color: GUTTER_BG, alpha: 1 });
-    g.rect(GUTTER_W - 1, 0, 1, cam.viewportHeight).fill({ color: HAIR, alpha: 1 });
-
-    // Group headers (FJERNSYN / RADIO) at channel zoom.
-    for (const gh of layout.groupHeaders) {
-      if (gh.alpha < 0.02 || gh.y < RULER_H - 10 || gh.y > cam.viewportHeight) continue;
-      this.gutterPool.next(gh.label, 12, gh.y + 6, gh.alpha * 0.9, TEXT_DIM);
-    }
-
-    // Track labels in the gutter.
-    for (const track of layout.tracks) {
-      if (track.labelAlpha < 0.02) continue;
-      const cy = track.y + track.h / 2 - 8;
-      if (cy < RULER_H - 12 || cy > cam.viewportHeight) continue;
-      const tint = TEXT_BRIGHT;
-      const swatch = mediaColor(track.mediaType);
-      if (track.kind !== "archive") {
-        g.rect(14, cy + 4, 8, 8).fill({ color: swatch, alpha: track.labelAlpha });
-      }
-      this.gutterPool.next(track.label, track.kind === "archive" ? 16 : 28, cy, track.labelAlpha, tint);
-    }
-
-    // Top ruler panel (opaque) + tick labels.
-    g.rect(0, 0, cam.viewportWidth, RULER_H).fill({ color: RULER_BG, alpha: 1 });
-    g.rect(0, RULER_H - 1, cam.viewportWidth, 1).fill({ color: HAIR, alpha: 1 });
-    for (const t of ticks) {
-      const x = cam.timeToX(t.ms);
-      if (x < GUTTER_W - 4 || x > cam.viewportWidth) continue;
-      g.rect(x, RULER_H - 7, 1, 7).fill({ color: HAIR, alpha: (t.major ? 0.9 : 0.5) * t.alpha });
+      if (x < -4 || x > cam.viewportWidth) continue;
+      // Gridlines: pressed into the paper, never a cage around the content.
+      g.rect(x, RULER_H, 1, cam.viewportHeight - RULER_H).fill({ color: INK, alpha: (t.major ? 0.07 : 0.03) * t.alpha });
+      g.rect(x, RULER_H - 8, 1, 8).fill({ color: INK, alpha: (t.major ? 0.4 : 0.2) * t.alpha });
       if (t.labelAlpha > 0.03) {
-        this.rulerPool.next(t.label, x + 4, 9, (t.major ? 1 : 0.7) * t.labelAlpha, t.major ? TEXT_BRIGHT : TEXT_DIM);
+        this.rulerPool.next(t.label, x + 5, 9, (t.major ? 0.95 : 0.6) * t.labelAlpha, t.major ? INK : INK_DIM);
       }
     }
-    // Mask any ruler text that bled under the gutter.
-    g.rect(0, 0, GUTTER_W, RULER_H).fill({ color: RULER_BG, alpha: 1 });
-    this.gutterPool.next("Arkivkort", 14, 11, 0.85, TEXT_BRIGHT);
 
-    // Vertical scrollbar when channel content overflows.
-    if (z.pChannel > 0.5 && cam.contentHeight > cam.viewportHeight) {
+    // Vertical scroll thumb: one hairline, only when the world overflows.
+    if (z.pChannel > 0.5 && cam.contentHeight > cam.viewportHeight + 1) {
       const trackH = cam.viewportHeight - RULER_H;
       const thumbH = Math.max(28, (trackH * trackH) / cam.contentHeight);
       const maxScroll = cam.contentHeight - cam.viewportHeight;
       const ty = RULER_H + (trackH - thumbH) * (cam.scrollY / maxScroll);
-      g.roundRect(cam.viewportWidth - 7, ty, 4, thumbH, 2).fill({ color: 0x9a8d74, alpha: 0.6 * z.pChannel });
+      g.roundRect(cam.viewportWidth - 5, ty, 2, thumbH, 1).fill({ color: INK, alpha: 0.25 * z.pChannel });
     }
 
     this.rulerPool.end();
-    this.gutterPool.end();
   }
 
   // ── interaction helpers (called from the React wrapper) ────────────────────
@@ -467,6 +499,13 @@ export class TimelineRenderer {
   }
   getHovered() {
     return this.hoveredProgramme;
+  }
+  setPointer(_x: number, y: number) {
+    this.pointerY = y;
+  }
+  /** Screen rect of the lifted selection, for the DOM meta float. */
+  getSelectedRect(): ScreenRect | null {
+    return this.selectedRect;
   }
 
   /** Animate the camera to frame a given time at a given scale (date jump). */

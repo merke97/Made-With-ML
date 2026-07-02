@@ -8,15 +8,19 @@ import { lerp, type ZoomState } from "./zoom";
 // channel lanes have permanent vertical positions and never reorder while you
 // scroll through time. Aggregate bands (Archive, TV, Radio) are drawn in the
 // same space and smoothly split into those fixed lanes as you zoom in.
+//
+// Tidsrummet: there is no gutter panel and no group headers — the object owns
+// the whole stage. Channel monograms are etched over the left fade by the
+// renderer; media identity is carried by the material itself (block vs wave).
 
 export const RULER_H = 36;
-export const GUTTER_W = 138;
+/** Left inset reserved for nothing — content runs to the edge and fades out. */
+export const GUTTER_W = 0;
 // Lanes stretch to fill the viewport (so resolving into channels never shrinks
 // the world into a strip with dead space below), within sane bounds.
 const CHANNEL_H_MIN = 44;
 const CHANNEL_H_MAX = 112;
-const GROUP_HEADER_H = 28;
-const GROUP_GAP = 16;
+const GROUP_GAP = 18;
 const AGG_TOP_PAD = 26;
 const AGG_BOTTOM_PAD = 26;
 const BAND_GAP = 16;
@@ -42,15 +46,8 @@ export interface RenderTrack {
   labelAlpha: number;
 }
 
-export interface GroupHeader {
-  label: string;
-  y: number;
-  alpha: number;
-}
-
 export interface Layout {
   tracks: RenderTrack[];
-  groupHeaders: GroupHeader[];
   contentHeight: number;
 }
 
@@ -58,28 +55,21 @@ export interface Layout {
 function channelWorldRects(channelH: number): {
   byId: Map<string, VRect>;
   contentHeight: number;
-  tvHeaderY: number;
-  radioHeaderY: number;
 } {
   const byId = new Map<string, VRect>();
-  let y = RULER_H + 6;
+  let y = RULER_H + 14;
 
-  const tvHeaderY = y;
-  y += GROUP_HEADER_H;
   for (const c of TV_CHANNELS) {
     byId.set(c.id, { y, h: channelH });
     y += channelH;
   }
-
   y += GROUP_GAP;
-  const radioHeaderY = y;
-  y += GROUP_HEADER_H;
   for (const c of RADIO_CHANNELS) {
     byId.set(c.id, { y, h: channelH });
     y += channelH;
   }
 
-  return { byId, contentHeight: y + 18, tvHeaderY, radioHeaderY };
+  return { byId, contentHeight: y + 18 };
 }
 
 // Rebuilt only when the viewport height (and thus lane height) changes; lane
@@ -89,7 +79,7 @@ let worldCacheH = CHANNEL_H_MIN;
 
 function laneHeightFor(viewportHeight: number): number {
   const nLanes = TV_CHANNELS.length + RADIO_CHANNELS.length;
-  const fixedH = RULER_H + 6 + 2 * GROUP_HEADER_H + GROUP_GAP + 18;
+  const fixedH = RULER_H + 14 + GROUP_GAP + 18;
   const h = Math.floor((viewportHeight - fixedH) / nLanes);
   return Math.min(CHANNEL_H_MAX, Math.max(CHANNEL_H_MIN, h));
 }
@@ -131,7 +121,7 @@ export function computeLayout(camera: Camera, z: ZoomState): Layout {
     h: archiveRect.h,
     alpha: 1 - z.pMedia,
     label: "Arkiv",
-    labelAlpha: 1 - z.pMedia,
+    labelAlpha: 0,
   });
 
   // Media bands: emerge from the archive band, then hand off to channels.
@@ -149,7 +139,7 @@ export function computeLayout(camera: Camera, z: ZoomState): Layout {
       h: r.h,
       alpha: z.pMedia * (1 - z.pChannel),
       label: m.label,
-      labelAlpha: z.pMedia * (1 - z.pChannel),
+      labelAlpha: 0,
     });
   }
 
@@ -175,10 +165,5 @@ export function computeLayout(camera: Camera, z: ZoomState): Layout {
   channelsOf(TV_CHANNELS, tvBand);
   channelsOf(RADIO_CHANNELS, radioBand);
 
-  const groupHeaders: GroupHeader[] = [
-    { label: "FJERNSYN", y: CHANNEL_WORLD.tvHeaderY - scroll, alpha: z.pChannel },
-    { label: "RADIO", y: CHANNEL_WORLD.radioHeaderY - scroll, alpha: z.pChannel },
-  ];
-
-  return { tracks, groupHeaders, contentHeight };
+  return { tracks, contentHeight };
 }

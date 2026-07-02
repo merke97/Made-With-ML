@@ -1,90 +1,67 @@
 import { useEffect, useRef, useState } from "react";
-import type { Store } from "../timeline/store";
-import { formatDay } from "../timeline/ticks";
-import { computeZoomState } from "../timeline/zoom";
 
-// Live readout of where the camera is in the semantic-zoom continuum. Reads the
-// camera each animation frame (throttled) — this is the only React surface that
-// reflects raw camera state, so the rest of the app never re-renders on pan.
-function phaseLabel(zoomState: ReturnType<typeof computeZoomState>): string {
-  if (zoomState.pChannel > 0.85 && zoomState.pProgramme > 0.5) return "Udsendelser";
-  if (zoomState.pChannel > 0.5) return "Kanaler";
-  if (zoomState.pMedia > 0.5) return "Fjernsyn / Radio";
-  return "Hele arkivet";
-}
+// The only chrome left: a brand whisper that steps aside while you drive, and
+// a single first-visit hint that teaches the grip once, then never returns.
 
-export function StatusReadout({ store }: { store: Store }) {
-  const [text, setText] = useState({ phase: "Hele arkivet", date: "" });
-  const last = useRef(0);
+export function BrandWhisper() {
+  const [quiet, setQuiet] = useState(false);
+  const timer = useRef<number>(0);
 
   useEffect(() => {
-    let raf = 0;
-    const tick = (now: number) => {
-      raf = requestAnimationFrame(tick);
-      if (now - last.current < 120) return;
-      last.current = now;
-      const cam = store.camera;
-      const z = computeZoomState(cam.msPerPixel);
-      setText({ phase: phaseLabel(z), date: formatDay(cam.centerTimeMs) });
+    const wake = () => {
+      setQuiet(true);
+      window.clearTimeout(timer.current);
+      timer.current = window.setTimeout(() => setQuiet(false), 1800);
     };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [store]);
+    window.addEventListener("pointerdown", wake, { passive: true });
+    window.addEventListener("wheel", wake, { passive: true });
+    return () => {
+      window.removeEventListener("pointerdown", wake);
+      window.removeEventListener("wheel", wake);
+      window.clearTimeout(timer.current);
+    };
+  }, []);
 
   return (
-    <div className="status">
-      <span className="status-phase">{text.phase}</span>
-      <span className="status-date">{text.date}</span>
+    <div className={`brand-whisper${quiet ? " quiet" : ""}`} aria-hidden>
+      <span className="brand-dr">DR</span> Tidsrummet
     </div>
   );
 }
 
-export function Legend() {
-  return (
-    <div className="legend" aria-hidden>
-      <div className="legend-row">
-        <span className="dot tv" /> Fjernsyn
-        <span className="dot radio" /> Radio
-      </div>
-      <div className="legend-row access">
-        <span className="bar solid" /> Tilgængelig
-        <span className="bar outline" /> Kun metadata
-        <span className="bar dim" /> Begrænset
-      </div>
-    </div>
-  );
-}
+const HINT_KEY = "tidsrummet-hint-seen";
 
-export function HelpHint() {
-  const [open, setOpen] = useState(false);
-  if (!open) {
-    return (
-      <button className="help-toggle" aria-label="Vis hjælp" onClick={() => setOpen(true)}>
-        Sådan bruger du kortet
-      </button>
-    );
-  }
+export function FirstRunWhisper() {
+  const [gone, setGone] = useState(() => {
+    try {
+      return localStorage.getItem(HINT_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    if (gone) return;
+    const dismiss = () => {
+      setGone(true);
+      try {
+        localStorage.setItem(HINT_KEY, "1");
+      } catch {
+        /* private mode */
+      }
+    };
+    window.addEventListener("wheel", dismiss, { passive: true, once: true });
+    window.addEventListener("pointerdown", dismiss, { passive: true, once: true });
+    return () => {
+      window.removeEventListener("wheel", dismiss);
+      window.removeEventListener("pointerdown", dismiss);
+    };
+  }, [gone]);
+
+  if (gone) return null;
   return (
-    <div className="help">
-      <button className="help-close" aria-label="Skjul" onClick={() => setOpen(false)}>
-        ×
-      </button>
-      <strong>Bevæg dig gennem sendehistorien</strong>
-      <ul>
-        <li>
-          <b>Træk</b> for at panorere — vandret er tid, lodret er kanaler
-        </li>
-        <li>
-          <b>Scroll</b> eller <b>knib</b> (to fingre) for at zoome
-        </li>
-        <li>
-          <b>Dobbelt-klik / dobbelt-tap</b> flyver ét niveau ind (⇧ + dobbelt-klik: ud)
-        </li>
-        <li>Zoom ind: arkivet deler sig i fjernsyn, radio, kanaler og udsendelser</li>
-        <li>
-          <b>Tap</b> en udsendelse for detaljer
-        </li>
-      </ul>
+    <div className="firstrun-whisper" aria-hidden>
+      Rul for at nærme dig · træk for at bevæge dig · tryk <b>/</b> for at søge
     </div>
   );
 }

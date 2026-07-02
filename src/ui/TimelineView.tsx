@@ -90,6 +90,8 @@ export function TimelineView({ store, data, agg, onReady }: Props) {
     const onMove = (e: PointerEvent) => {
       const r = rendererRef.current;
       if (!r) return;
+      const pt = local(e.clientX, e.clientY);
+      r.setPointer(pt.x, pt.y);
       const prev = pointers.get(e.pointerId);
 
       const dt = Math.max(1, e.timeStamp - lastMoveTs);
