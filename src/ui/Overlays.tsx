@@ -24,7 +24,8 @@ export function BrandWhisper() {
 
   return (
     <div className={`brand-whisper${quiet ? " quiet" : ""}`} aria-hidden>
-      <span className="brand-dr">DR</span> Tidsrummet
+      <span className="brand-dr">DR</span>
+      <span className="brand-name">Tidsrummet</span>
     </div>
   );
 }
@@ -59,9 +60,16 @@ export function FirstRunWhisper() {
   }, [gone]);
 
   if (gone) return null;
+  const coarse = typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches;
   return (
     <div className="firstrun-whisper" aria-hidden>
-      Rul for at nærme dig · træk for at bevæge dig · tryk <b>/</b> for at søge
+      {coarse ? (
+        <>Knib for at nærme dig · træk for at bevæge dig · dobbelttryk dykker</>
+      ) : (
+        <>
+          Rul for at nærme dig · træk for at bevæge dig · tryk <b>/</b> for at søge
+        </>
+      )}
     </div>
   );
 }

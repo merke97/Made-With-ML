@@ -126,7 +126,7 @@ export class TimelineRenderer {
       fontWeight: "600",
       letterSpacing: 2,
       // A paper halo so the etched monogram stays readable over pigment.
-      stroke: { color: 0xf6f1e6, width: 3, join: "round" },
+      stroke: { color: 0xf6f1e6, width: 2, join: "round" },
     });
     this.rulerPool = new TextPool(this.root, { fill: 0xffffff, fontSize: 11, fontFamily: GROT });
 
@@ -199,7 +199,8 @@ export class TimelineRenderer {
       this.watermark.text = year;
       this.lastWatermarkText = year;
     }
-    const targetSize = Math.round(clamp(cam.viewportHeight * 0.36, 120, 280));
+    // Cap by width too, so the year never spills past a narrow screen.
+    const targetSize = Math.round(clamp(Math.min(cam.viewportHeight * 0.36, cam.viewportWidth * 0.4), 90, 280));
     if (Math.abs(this.watermark.style.fontSize - targetSize) > 4) this.watermark.style.fontSize = targetSize;
     this.watermark.x = cam.viewportWidth - 36;
     this.watermark.y = RULER_H + (cam.viewportHeight - RULER_H) / 2;

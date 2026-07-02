@@ -143,10 +143,17 @@ export function CommandLine({ store, rendererRef }: Props) {
   ].filter(Boolean);
 
   if (!open) {
-    if (!activeLenses.length) return null;
+    // The line is always physically present as a whisper on the paper — tap
+    // (the only way in on touch) or press "/" and it rises.
     return (
       <button className="lens-whisper" onClick={() => { setText(state.query); setOpen(true); }}>
-        {activeLenses.join(" · ")} <span className="esc">esc rydder</span>
+        {activeLenses.length ? (
+          <>
+            {activeLenses.join(" · ")} <span className="esc">esc rydder</span>
+          </>
+        ) : (
+          <span className="summon">Søg i arkivet</span>
+        )}
       </button>
     );
   }
