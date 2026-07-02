@@ -31,6 +31,7 @@ Requires Node 18+. The timeline renders with WebGL (PixiJS); any modern browser 
 | --- | --- |
 | **Drag** | Pan — horizontal is time, vertical scrolls channels |
 | **Scroll / wheel** | Zoom in/out, anchored under the cursor |
+| **Double-click / double-tap** | Fly one semantic level deeper (⇧ + double-click: back out) |
 | **Shift + wheel** | Pan horizontally through time |
 | **Click a programme** | Open the detail panel |
 | **Search box** | Highlights matching broadcasts on the timeline (clusters glow) |
@@ -92,15 +93,22 @@ not a sequence of separate charts.
 
 ### Motion & "lock-in" (`timeline/camera.ts`)
 
-Zoom is continuous *while you drive it*, but the camera should never come to rest
-half-resolved. Every interaction sets a **target**; `Camera.update(dt)` eases the
-live value toward it each frame (so zoom glides and pan has momentum), and the
-cursor-anchored time stays pinned for the whole glide. When input goes idle and
-the zoom is caught mid-transition, a **magnetic detent** completes the move — in
-the direction you were heading — onto the nearest resolved plateau (whole archive
-/ media bands / channel lanes / programmes). You cross transitions in motion and
-always *rest* on a clean state. If you're already resting on a plateau, nothing
-moves: it only locks in, it never drags you off a deliberate rest.
+The rule is **the user drives, the system polishes**. Direct manipulation
+(wheel, pinch, drag) moves a *target* the live value eases toward exponentially —
+instant response, momentum on release, and the cursor-anchored time stays pinned
+for the whole glide. Input gain is tuned so the full years → hours journey is
+about 26 mouse-wheel notches of honest, continuous driving.
+
+Autonomous moves are deliberately different. Detents, double-click flights and
+date jumps run as **timed flights** with a cubic ease-in-out whose duration
+scales with distance — velocity-continuous, never a slam — and any user input
+cancels them instantly. The **magnetic detent** is a *finisher*, not an
+autopilot: if input goes idle mid-crossfade (after ~420 ms, longer than a slow
+wheel cadence), it completes the transition just past the band edge in the
+direction you were heading. It never travels to a distant zoom level on its
+own — that's what **double-click** is for, which flies to the next resolved
+plateau (whole archive / media bands / channel lanes / programmes) in one
+motion. If you're already resting on a clean state, nothing moves.
 
 ### Why broadcast hours, not programme count
 

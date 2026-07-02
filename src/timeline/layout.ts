@@ -11,7 +11,10 @@ import { lerp, type ZoomState } from "./zoom";
 
 export const RULER_H = 36;
 export const GUTTER_W = 138;
-const CHANNEL_H = 44;
+// Lanes stretch to fill the viewport (so resolving into channels never shrinks
+// the world into a strip with dead space below), within sane bounds.
+const CHANNEL_H_MIN = 44;
+const CHANNEL_H_MAX = 112;
 const GROUP_HEADER_H = 28;
 const GROUP_GAP = 16;
 const AGG_TOP_PAD = 26;
@@ -52,31 +55,52 @@ export interface Layout {
 }
 
 /** Fixed world-space y of each channel lane (top), measured from content top. */
-function channelWorldRects(): { byId: Map<string, VRect>; contentHeight: number; tvHeaderY: number; radioHeaderY: number } {
+function channelWorldRects(channelH: number): {
+  byId: Map<string, VRect>;
+  contentHeight: number;
+  tvHeaderY: number;
+  radioHeaderY: number;
+} {
   const byId = new Map<string, VRect>();
   let y = RULER_H + 6;
 
   const tvHeaderY = y;
   y += GROUP_HEADER_H;
   for (const c of TV_CHANNELS) {
-    byId.set(c.id, { y, h: CHANNEL_H });
-    y += CHANNEL_H;
+    byId.set(c.id, { y, h: channelH });
+    y += channelH;
   }
 
   y += GROUP_GAP;
   const radioHeaderY = y;
   y += GROUP_HEADER_H;
   for (const c of RADIO_CHANNELS) {
-    byId.set(c.id, { y, h: CHANNEL_H });
-    y += CHANNEL_H;
+    byId.set(c.id, { y, h: channelH });
+    y += channelH;
   }
 
   return { byId, contentHeight: y + 18, tvHeaderY, radioHeaderY };
 }
 
-const CHANNEL_WORLD = channelWorldRects();
+// Rebuilt only when the viewport height (and thus lane height) changes; lane
+// positions stay permanent for any given viewport.
+let worldCache = channelWorldRects(CHANNEL_H_MIN);
+let worldCacheH = CHANNEL_H_MIN;
+
+function laneHeightFor(viewportHeight: number): number {
+  const nLanes = TV_CHANNELS.length + RADIO_CHANNELS.length;
+  const fixedH = RULER_H + 6 + 2 * GROUP_HEADER_H + GROUP_GAP + 18;
+  const h = Math.floor((viewportHeight - fixedH) / nLanes);
+  return Math.min(CHANNEL_H_MAX, Math.max(CHANNEL_H_MIN, h));
+}
 
 export function computeLayout(camera: Camera, z: ZoomState): Layout {
+  const channelH = laneHeightFor(camera.viewportHeight);
+  if (channelH !== worldCacheH) {
+    worldCache = channelWorldRects(channelH);
+    worldCacheH = channelH;
+  }
+  const CHANNEL_WORLD = worldCache;
   const aggTop = RULER_H + AGG_TOP_PAD;
   const aggBottom = camera.viewportHeight - AGG_BOTTOM_PAD;
   const aggH = Math.max(40, aggBottom - aggTop);

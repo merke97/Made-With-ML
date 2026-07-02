@@ -17,6 +17,11 @@ export function zoomValue(msPerPixel: number): number {
   return Math.log2(BASE_MS_PER_PX / msPerPixel);
 }
 
+/** Inverse of zoomValue: the msPerPixel that renders a given zoom value. */
+export function mppForZoom(zoom: number): number {
+  return BASE_MS_PER_PX / Math.pow(2, zoom);
+}
+
 export function smoothstep(edge0: number, edge1: number, x: number): number {
   const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)));
   return t * t * (3 - 2 * t);

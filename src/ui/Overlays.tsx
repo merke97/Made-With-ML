@@ -78,7 +78,7 @@ export function HelpHint() {
           <b>Scroll</b> eller <b>knib</b> (to fingre) for at zoome
         </li>
         <li>
-          <b>Dobbelt-klik / dobbelt-tap</b> zoomer ind
+          <b>Dobbelt-klik / dobbelt-tap</b> flyver ét niveau ind (⇧ + dobbelt-klik: ud)
         </li>
         <li>Zoom ind: arkivet deler sig i fjernsyn, radio, kanaler og udsendelser</li>
         <li>

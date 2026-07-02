@@ -143,10 +143,11 @@ export function TimelineView({ store, data, agg, onReady }: Props) {
 
       if (wasSingle && moved < 6 && r) {
         const { x, y } = local(e.clientX, e.clientY);
-        // Double-tap zooms in (the only "zoom" gesture besides pinch on touch).
+        // Double-click/tap flies to the next resolved zoom level in one motion
+        // (shift+double-click flies back out a level).
         const now = e.timeStamp;
         if (now - lastTapTime < 300) {
-          store.camera.zoomAt(x, 0.45);
+          store.camera.flyToPlateau(e.shiftKey ? -1 : 1, x);
           lastTapTime = 0;
         } else {
           store.select(r.programmeAt(x, y));
@@ -162,7 +163,10 @@ export function TimelineView({ store, data, agg, onReady }: Props) {
       if (e.shiftKey) {
         store.camera.panByPixels(-(e.deltaY + e.deltaX));
       } else {
-        store.camera.zoomAt(x, Math.exp(e.deltaY * 0.0012));
+        // Gain tuned so years → hours is ~26 mouse-wheel notches. Trackpad
+        // pinch arrives as ctrl+wheel with much smaller deltas — more gain.
+        const gain = e.ctrlKey ? 0.0095 : 0.0026;
+        store.camera.zoomAt(x, Math.exp(e.deltaY * gain));
       }
     };
 

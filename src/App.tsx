@@ -26,7 +26,12 @@ export default function App() {
     const id = setTimeout(() => {
       const data = generateArchive();
       const agg = buildAggregates(data);
-      setBuilt({ data, agg, store: new Store(data) });
+      const store = new Store(data);
+      // Dev-only hook for the interaction trace harness (see repo history).
+      if ((import.meta as { env?: { DEV?: boolean } }).env?.DEV) {
+        (window as unknown as { __store: Store }).__store = store;
+      }
+      setBuilt({ data, agg, store });
     }, 30);
     return () => clearTimeout(id);
   }, []);

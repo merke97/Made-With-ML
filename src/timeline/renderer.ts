@@ -6,7 +6,7 @@ import { computeLayout, GUTTER_W, RULER_H, type RenderTrack } from "./layout";
 import type { Store } from "./store";
 import { TextPool } from "./textpool";
 import { computeTicks } from "./ticks";
-import { clamp, computeZoomState, MS } from "./zoom";
+import { clamp, computeZoomState, MS, smoothstep } from "./zoom";
 
 // ── palette ────────────────────────────────────────────────────────────────
 // "Parchment & ink": a light, warm Royal-Library palette. Density now reads as
@@ -38,11 +38,26 @@ function lowerBound<T>(arr: T[], key: (t: T) => number, value: number): number {
   return lo;
 }
 
-/** Pick the aggregate level whose buckets are wide enough to read as terrain. */
-function levelForScale(msPerPixel: number): AggregateLevel {
-  if (MS.day / msPerPixel >= 2.5) return "day";
-  if ((30 * MS.day) / msPerPixel >= 8) return "month";
-  return "year";
+/**
+ * Continuous level-of-detail: finer aggregate levels crossfade in as their
+ * buckets gain pixel width, instead of the whole terrain re-chunking in a
+ * single frame at a hard threshold.
+ */
+interface LevelBlend {
+  a: AggregateLevel;
+  b: AggregateLevel | null;
+  /** 0..1 blend from a to b. */
+  t: number;
+}
+
+function levelBlend(msPerPixel: number): LevelBlend {
+  const fDay = smoothstep(2, 4.5, MS.day / msPerPixel);
+  if (fDay >= 1) return { a: "day", b: null, t: 0 };
+  if (fDay > 0) return { a: "month", b: "day", t: fDay };
+  const fMonth = smoothstep(5, 11, (30 * MS.day) / msPerPixel);
+  if (fMonth >= 1) return { a: "month", b: null, t: 0 };
+  if (fMonth > 0) return { a: "year", b: "month", t: fMonth };
+  return { a: "year", b: null, t: 0 };
 }
 
 export class TimelineRenderer {
@@ -111,7 +126,7 @@ export class TimelineRenderer {
 
     const viewStart = cam.viewStartMs;
     const viewEnd = cam.viewEndMs;
-    const level = levelForScale(cam.msPerPixel);
+    const lod = levelBlend(cam.msPerPixel);
 
     this.titlePool.begin();
 
@@ -121,7 +136,8 @@ export class TimelineRenderer {
         // Aggregate ribbon resolves into individual programme bars.
         const ribbonAlpha = track.alpha * (1 - z.pProgramme);
         if (ribbonAlpha > 0.01) {
-          this.drawRibbon(ribbon, track, level, viewStart, viewEnd, ribbonAlpha);
+          this.drawRibbon(ribbon, track, lod.a, viewStart, viewEnd, ribbonAlpha * (lod.b ? 1 - lod.t : 1));
+          if (lod.b && lod.t > 0.02) this.drawRibbon(ribbon, track, lod.b, viewStart, viewEnd, ribbonAlpha * lod.t);
         }
         if (z.pProgramme > 0.01) {
           this.drawProgrammes(bars, overlay, track, viewStart, viewEnd, z.pProgramme, z.pLabels);
@@ -129,8 +145,12 @@ export class TimelineRenderer {
         this.drawLaunchHatch(overlay, track);
       } else {
         // Archive / TV / Radio aggregate density bands — a smooth terrain ridge.
-        this.drawRidge(ribbon, track, level, viewStart, viewEnd, track.alpha);
-        if (this.store.state.showNews) this.drawNewsTerrain(overlay, track, level, viewStart, viewEnd, track.alpha);
+        this.drawRidge(ribbon, track, lod.a, viewStart, viewEnd, track.alpha * (lod.b ? 1 - lod.t : 1));
+        if (lod.b && lod.t > 0.02) this.drawRidge(ribbon, track, lod.b, viewStart, viewEnd, track.alpha * lod.t);
+        if (this.store.state.showNews) {
+          this.drawNewsTerrain(overlay, track, lod.a, viewStart, viewEnd, track.alpha * (lod.b ? 1 - lod.t : 1));
+          if (lod.b && lod.t > 0.02) this.drawNewsTerrain(overlay, track, lod.b, viewStart, viewEnd, track.alpha * lod.t);
+        }
       }
     }
 
@@ -279,13 +299,14 @@ export class TimelineRenderer {
         overlay.roundRect(drawX - 2, y - 2, w - gap + 4, barH + 4, r + 1).stroke({ width: 2, color: COL_SELECT, alpha: 1 });
       }
 
-      // Labels only when the bar is wide enough — and clipped to the bar so
-      // titles never bleed across neighbours (a big source of visual noise).
-      if (pLabels > 0.02 && w > 46) {
+      // Labels fade in with bar width (no pop at a hard pixel gate) — and are
+      // clipped to the bar so titles never bleed across neighbours.
+      if (pLabels > 0.02 && w > 40) {
+        const widthAlpha = smoothstep(40, 72, w);
         const budget = Math.floor((w - 14) / 6.4);
-        if (budget >= 3) {
+        if (budget >= 3 && widthAlpha > 0.02) {
           const label = p.title.length > budget ? p.title.slice(0, budget - 1) + "…" : p.title;
-          this.titlePool.next(label, drawX + 6, cy - 7, pLabels * Math.min(1, a + 0.4), TEXT_BRIGHT);
+          this.titlePool.next(label, drawX + 6, cy - 7, pLabels * widthAlpha * Math.min(1, a + 0.4), TEXT_BRIGHT);
         }
       }
     }
@@ -367,7 +388,7 @@ export class TimelineRenderer {
     for (const t of ticks) {
       const x = cam.timeToX(t.ms);
       if (x < GUTTER_W || x > cam.viewportWidth) continue;
-      g.rect(x, RULER_H, 1, cam.viewportHeight - RULER_H).fill({ color: HAIR, alpha: t.major ? 0.45 : 0.18 });
+      g.rect(x, RULER_H, 1, cam.viewportHeight - RULER_H).fill({ color: HAIR, alpha: (t.major ? 0.45 : 0.18) * t.alpha });
     }
 
     // Left gutter panel (opaque — masks content scrolled/overflowing left).
@@ -399,8 +420,10 @@ export class TimelineRenderer {
     for (const t of ticks) {
       const x = cam.timeToX(t.ms);
       if (x < GUTTER_W - 4 || x > cam.viewportWidth) continue;
-      g.rect(x, RULER_H - 7, 1, 7).fill({ color: HAIR, alpha: t.major ? 0.9 : 0.5 });
-      this.rulerPool.next(t.label, x + 4, 9, t.major ? 1 : 0.7, t.major ? TEXT_BRIGHT : TEXT_DIM);
+      g.rect(x, RULER_H - 7, 1, 7).fill({ color: HAIR, alpha: (t.major ? 0.9 : 0.5) * t.alpha });
+      if (t.labelAlpha > 0.03) {
+        this.rulerPool.next(t.label, x + 4, 9, (t.major ? 1 : 0.7) * t.labelAlpha, t.major ? TEXT_BRIGHT : TEXT_DIM);
+      }
     }
     // Mask any ruler text that bled under the gutter.
     g.rect(0, 0, GUTTER_W, RULER_H).fill({ color: RULER_BG, alpha: 1 });
